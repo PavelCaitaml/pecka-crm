@@ -4,6 +4,8 @@
   <meta charset="UTF-8"/>
   <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
   <title>CRM Systém</title>
+  <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" crossorigin=""/>
+  <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js" crossorigin="" defer></script>
   <style>
 
 @import url('https://fonts.googleapis.com/css2?family=Sora:wght@300;400;500;600;700&family=JetBrains+Mono:wght@400;500&display=swap');
@@ -277,6 +279,81 @@ body,html{font-family:'Sora',sans-serif;background:var(--bg);color:var(--ink)}
 .ai-key-info{font-size:11px;color:var(--muted);line-height:1.5;margin-bottom:8px}
 .ai-key-info a{color:#7C3AED;text-decoration:underline}
 .ai-ctx-chip{display:inline-flex;align-items:center;gap:4px;font-size:10px;padding:2px 8px;background:rgba(255,255,255,.2);border-radius:20px;margin-left:6px;font-weight:500}
+
+/* ─── MAPA ──────────────────────────────────────────────── */
+.map-wrap{height:calc(100vh - 200px);min-height:420px;border-radius:12px;overflow:hidden;border:1.5px solid var(--border);box-shadow:var(--sh)}
+.map-controls{display:flex;gap:8px;align-items:center;margin-bottom:10px;flex-wrap:wrap}
+.map-stat{font-size:11px;color:var(--muted)}
+.map-progress{background:#FEF3C7;border:1.5px solid #FCD34D;color:#92400E;padding:6px 10px;border-radius:8px;font-size:11px;font-weight:600;display:flex;align-items:center;gap:6px}
+.map-progress-bar{flex:1;height:5px;background:#FDE68A;border-radius:3px;overflow:hidden;min-width:80px;max-width:160px}
+.map-progress-fill{height:100%;background:#D97706;transition:width .3s}
+.crm-pin{background:none!important;border:none!important}
+.leaflet-popup-content{font-family:'Sora',sans-serif!important;margin:10px 12px!important}
+.leaflet-popup-content b{font-size:13px}
+
+/* ─── MOBILNÍ RESPONZIVITA ──────────────────────────────────────────────── */
+@media (max-width: 768px) {
+  .topbar{padding:0 12px;height:50px}
+  .topbar-brand{font-size:12px;gap:6px}
+  .btn-nav{padding:5px 10px;font-size:11px}
+  .home-wrap{padding:24px 14px}
+  .home-title{font-size:22px}
+  .home-sub{font-size:12px;margin-bottom:22px}
+  .sp-grid{grid-template-columns:repeat(2,1fr);gap:10px}
+  .sp-card{padding:18px 10px}
+  .sp-emoji{font-size:32px}
+  .sp-name{font-size:13px}
+  .modal{padding:20px;max-width:calc(100vw - 24px)}
+
+  /* Profile: sidebar nad obsahem místo vedle */
+  .profile-wrap{grid-template-columns:1fr;height:auto;min-height:calc(100vh - 50px)}
+  .profile-left{border-right:none;border-bottom:1px solid var(--border);padding:14px;max-height:none}
+  .profile-right{padding:14px;overflow-y:visible}
+  .p-avatar{width:50px;height:50px;font-size:22px;margin-bottom:6px}
+  .p-name{font-size:14px}
+
+  /* Větší tap targety */
+  .btn-sm{padding:8px 12px;font-size:12px}
+  .btn-status{padding:9px 13px;font-size:12px}
+  .main-tab{padding:11px 12px;font-size:12px}
+  .folder-tab{padding:8px 14px;font-size:12px}
+  .cat-tab{padding:8px 14px;font-size:12px}
+  .odt{padding:11px 14px;font-size:12px}
+  .org-head{padding:12px}
+  .org-org{font-size:13px}
+
+  /* Vodorovný scroll u dlouhých rad záložek */
+  .folder-tabs, .cat-tabs, .main-tabs, .org-detail-tabs{overflow-x:auto;flex-wrap:nowrap;scrollbar-width:none;-webkit-overflow-scrolling:touch}
+  .folder-tabs::-webkit-scrollbar, .cat-tabs::-webkit-scrollbar, .main-tabs::-webkit-scrollbar, .org-detail-tabs::-webkit-scrollbar{display:none}
+  .folder-tab, .cat-tab, .main-tab, .odt{white-space:nowrap;flex-shrink:0}
+
+  /* AI Asistent — větší tlačítko, panel přes celou šířku */
+  .ai-fab{width:52px;height:52px;bottom:14px;right:14px;font-size:22px}
+  .ai-panel{bottom:74px;right:8px;left:8px;width:auto;max-width:none;height:calc(100vh - 110px);max-height:calc(100vh - 110px)}
+
+  /* Status row — wrap rovnoměrně */
+  .status-row{gap:6px}
+
+  /* Manager dashboard */
+  .mgr-wrap{padding:16px 12px}
+  .kpi-row{grid-template-columns:repeat(2,1fr);gap:8px}
+  .kpi-card{padding:10px 8px}
+  .kpi-val{font-size:18px}
+  .kpi-lbl{font-size:9px}
+
+  /* Login */
+  .login-wrap{padding:24px 16px}
+  .login-box{padding:32px 24px}
+}
+
+@media (max-width: 480px) {
+  .home-title{font-size:19px}
+  .modal{padding:18px 16px}
+  .org-meta{font-size:9px;gap:5px}
+  .sbadge{font-size:9px;padding:2px 6px}
+  .ai-fab{width:50px;height:50px;font-size:20px;bottom:12px;right:12px}
+  .ai-panel{bottom:70px;right:6px;left:6px}
+}
 
   </style>
 </head>
@@ -6738,6 +6815,144 @@ function ManagerLogin({authManager}){
 }
 
 // ─── SALESPERSON PROFILE ──────────────────────────────────────────────────────
+// ─── MAPA ORGANIZACÍ (Leaflet + OSM + Nominatim s cache) ─────────────────────
+function MapView({allMy, sp, getAllTimeStatus, openOrgDetail}) {
+  const cacheKey = "crm_geo_v1"
+  const [geocoded, setGeocoded] = useState(()=>{try{return JSON.parse(localStorage.getItem(cacheKey)||"{}")}catch(_){return{}}})
+  const [progress, setProgress] = useState(null)
+  const [statusFilter, setStatusFilter] = useState("all")
+  const mapRef = useRef(null)
+  const mapInstanceRef = useRef(null)
+  const markersRef = useRef([])
+
+  // Inicializace mapy
+  useEffect(()=>{
+    if(!window.L) { console.error("Leaflet nenačten"); return }
+    if(!mapRef.current||mapInstanceRef.current) return
+    const map = window.L.map(mapRef.current,{scrollWheelZoom:true}).setView([49.8, 15.4], 7)
+    window.L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
+      attribution: '© <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a>',
+      maxZoom: 18
+    }).addTo(map)
+    mapInstanceRef.current = map
+    setTimeout(()=>map.invalidateSize(), 100)
+    return ()=>{
+      if(mapInstanceRef.current){
+        mapInstanceRef.current.remove()
+        mapInstanceRef.current = null
+      }
+    }
+  },[])
+
+  const visibleOrgs = useMemo(()=>{
+    if(statusFilter==="all") return allMy
+    return allMy.filter(o=>{
+      const s = getAllTimeStatus(o.id)
+      const folder = STATUS_TO_FOLDER[s] || "nove"
+      return folder === statusFilter
+    })
+  },[allMy, statusFilter])
+
+  // Geocodování chybějících
+  const geocodeAll = async () => {
+    const missing = visibleOrgs.filter(o=>!geocoded[o.id])
+    if(missing.length===0) { setProgress(null); return }
+    setProgress({done:0, total:missing.length})
+    const newGeo = {...geocoded}
+    for(let i=0;i<missing.length;i++) {
+      const o = missing[i]
+      const q = (o.type==="Obec" ? o.organization : o.organization+(o.okres?", okres "+o.okres:""))+", Česko"
+      try {
+        const r = await fetch("https://nominatim.openstreetmap.org/search?format=json&limit=1&countrycodes=cz&q="+encodeURIComponent(q),
+          {headers: {"Accept-Language":"cs"}})
+        const arr = await r.json()
+        if(arr.length>0) newGeo[o.id] = {lat:parseFloat(arr[0].lat), lng:parseFloat(arr[0].lon)}
+        else newGeo[o.id] = {failed:true, reason:"nenalezeno"}
+      } catch(e) {
+        newGeo[o.id] = {failed:true, reason:e.message}
+      }
+      setProgress({done:i+1, total:missing.length})
+      try{localStorage.setItem(cacheKey, JSON.stringify(newGeo))}catch(_){}
+      await new Promise(r=>setTimeout(r, 1100)) // Nominatim policy: max 1 req/sec
+    }
+    setGeocoded(newGeo)
+    setProgress(null)
+  }
+
+  // Vykreslit pinečky když se změní data
+  useEffect(()=>{
+    if(!mapInstanceRef.current||!window.L) return
+    markersRef.current.forEach(m=>m.remove())
+    markersRef.current = []
+    const bounds = []
+    visibleOrgs.forEach(o=>{
+      const g = geocoded[o.id]
+      if(!g||g.failed) return
+      const status = getAllTimeStatus(o.id)
+      const sm = STATUS_META[status]
+      const color = sm?sm.color:"#9E9A93"
+      const icon = sm?sm.icon:"📍"
+      const html = '<div style="background:'+color+';width:26px;height:26px;border-radius:50% 50% 50% 0;transform:rotate(-45deg);border:2px solid #fff;box-shadow:0 2px 6px rgba(0,0,0,.35);display:flex;align-items:center;justify-content:center"><span style="transform:rotate(45deg);font-size:13px">'+icon+'</span></div>'
+      const divIcon = window.L.divIcon({className:'crm-pin', html, iconSize:[26,26], iconAnchor:[13,26], popupAnchor:[0,-22]})
+      const marker = window.L.marker([g.lat, g.lng], {icon:divIcon}).addTo(mapInstanceRef.current)
+      const popupHtml =
+        '<div style="min-width:210px;font-family:Sora,sans-serif">'+
+        '<b style="font-size:13px">'+(o.organization||"")+'</b><br>'+
+        '<small style="color:#666">'+(o.type||"")+(o.okres?' · '+o.okres:'')+'</small>'+
+        (o.contact?'<br>👤 '+o.contact:'')+
+        (o.phone?'<br>📞 <a href="tel:'+o.phone+'">'+o.phone+'</a>':'')+
+        (o.email?'<br>✉️ <a href="mailto:'+o.email+'">'+o.email+'</a>':'')+
+        (sm?'<br><br><span style="background:'+sm.bg+';color:'+sm.color+';padding:3px 8px;border-radius:10px;font-size:10px;font-weight:600">'+sm.icon+' '+sm.label+'</span>':'')+
+        '<br><br><button class="crm-popup-btn" data-orgid="'+o.id+'" style="padding:6px 12px;background:#2D6A4F;color:#fff;border:none;border-radius:6px;cursor:pointer;font-size:11px;font-weight:600;width:100%">→ Otevřít detail</button>'+
+        '</div>'
+      marker.bindPopup(popupHtml)
+      marker.on('popupopen', ()=>{
+        setTimeout(()=>{
+          document.querySelectorAll('.crm-popup-btn[data-orgid="'+o.id+'"]').forEach(btn=>{
+            btn.onclick = ()=>{ openOrgDetail(o.id); mapInstanceRef.current.closePopup() }
+          })
+        }, 50)
+      })
+      markersRef.current.push(marker)
+      bounds.push([g.lat, g.lng])
+    })
+    if(bounds.length>0) {
+      try { mapInstanceRef.current.fitBounds(bounds, {padding:[40,40], maxZoom:11}) } catch(_){}
+    }
+  },[geocoded, visibleOrgs])
+
+  const stats = useMemo(()=>{
+    const done = visibleOrgs.filter(o=>geocoded[o.id]&&!geocoded[o.id].failed).length
+    const failed = visibleOrgs.filter(o=>geocoded[o.id]&&geocoded[o.id].failed).length
+    return {done, failed, todo: visibleOrgs.length-done-failed, total: visibleOrgs.length}
+  },[geocoded, visibleOrgs])
+
+  if(!window.L) return <div className="empty-s"><div className="empty-icon">🗺</div><div>Mapa se načítá… (Leaflet z CDN)<br/><small>Pokud nejede, obnov stránku.</small></div></div>
+
+  return(<>
+    <div className="map-controls">
+      <div className="map-stat">📍 Na mapě: <b style={{color:"var(--ink)"}}>{stats.done}</b>/{stats.total}{stats.failed>0&&<> · <span style={{color:"#DC2626"}}>chyby: {stats.failed}</span></>}</div>
+      <select className="sel" style={{width:"auto",fontSize:11,padding:"6px 8px"}} value={statusFilter} onChange={e=>setStatusFilter(e.target.value)}>
+        <option value="all">Všechny statusy</option>
+        <option value="zajem">✅ Jen Zájem</option>
+        <option value="termin">📅 Jen Má termín</option>
+        <option value="odlozeno">⏳ Jen Odloženo</option>
+        <option value="email">📧 Jen Email</option>
+        <option value="nezajem">❌ Jen Nezájem</option>
+        <option value="nove">🆕 Jen Nové</option>
+      </select>
+      {stats.todo>0&&!progress&&<button className="btn-sm green" onClick={geocodeAll}>🗺 Lokalizovat {stats.todo} {stats.todo===1?'organizaci':'organizací'}</button>}
+      {progress&&<div className="map-progress">
+        ⏳ Lokalizuji {progress.done}/{progress.total}
+        <div className="map-progress-bar"><div className="map-progress-fill" style={{width:(progress.done/progress.total*100)+'%'}}></div></div>
+      </div>}
+      {Object.keys(geocoded).length>0&&!progress&&<button className="btn-sm" onClick={()=>{if(window.confirm("Smazat keš lokací? Pak je budeš muset znovu zgeocodovat.")){localStorage.removeItem(cacheKey);setGeocoded({})}}}>🗑 Reset keše</button>}
+    </div>
+    <div ref={mapRef} className="map-wrap"></div>
+    <div style={{fontSize:10,color:"var(--muted)",marginTop:6,textAlign:"center"}}>Pinečky se zachovají mezi návštěvami (uložené v prohlížeči). Použito OpenStreetMap + Nominatim — respektujte rate limit ~1/s.</div>
+  </>)
+}
+
 // ─── AI ASSISTANT (Anthropic Claude) ─────────────────────────────────────────
 function AIAssistant({sp, allMy, expandedOrg, notes, interactions, orgDetails, tasks}) {
   const [open, setOpen]             = useState(false)
@@ -7336,6 +7551,7 @@ function SalespersonProfile({sp,salespeople,customOrgs,setCustomOrgs,orgOverride
           ✅ Úkoly {overdueTasks.length>0&&<span style={{background:"var(--red)",color:"#fff",borderRadius:20,padding:"1px 6px",fontSize:10,marginLeft:4}}>{overdueTasks.length}</span>}
         </button>
         <button className={`main-tab ${mainTab==="search"?"active":""}`} onClick={()=>{setMainTab("search");setSearchQ("");setSearchResult(null)}}>🔍 Hledat</button>
+        <button className={`main-tab ${mainTab==="map"?"active":""}`} onClick={()=>setMainTab("map")}>🗺 Mapa</button>
       </div>
 
       {/* SEARCH TAB */}
@@ -7383,6 +7599,9 @@ function SalespersonProfile({sp,salespeople,customOrgs,setCustomOrgs,orgOverride
           </>)
         })()}
       </>}
+
+      {/* MAP TAB */}
+      {mainTab==="map"&&<MapView sp={sp} allMy={allMy} getAllTimeStatus={getAllTimeStatus} openOrgDetail={(id)=>{setMainTab("orgs");setExpOrg(id)}}/>}
 
       {/* TASKS TAB */}
       {mainTab==="tasks"&&<>
