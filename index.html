@@ -6648,6 +6648,63 @@ const STATUS_TO_FOLDER = {
   emailed:"email",  no_contact:"nekontaktovat", termin:"termin",
 }
 
+// ─── CALL SCRIPTY ─────────────────────────────────────────────────────────────
+const getScriptType = (type) => {
+  if (type === "Obec") return "obec"
+  if (["MŠ","ZŠ","SŠ","MŠ+ZŠ","ZŠ+SŠ"].includes(type)) return "skola"
+  return "firma"
+}
+const SCRIPT_LABELS = { obec: "🏘️ Obec / Město", skola: "🏫 Škola", firma: "🏢 Firma" }
+const DEFAULT_SCRIPTS = {
+  obec: `1. ÚVOD
+„Dobrý den, paní starostko / pane starosto, u telefonu Pavel Caitaml z Edukačního poradenského centra PECKA. Pane starosto / paní starostko, volám Vám velmi stručně ohledně rozvoje digitálních dovedností u Vás ve městě. Máte na mě minutku?"
+
+
+2. DŮVOD VOLÁNÍ
+„Proč vlastně volám — my spolupracujeme s obcemi a městy po celé České republice a aktuálně — ve spolupráci s Ministerstvem vnitra — spouštíme vzdělávací programy přímo reagující na tu vládní strategii Digitální Česko 2030, určitě o tom víte. Propojili jsme vzdělávání do jednoho komplexního balíčku, který pokrývá Vaše úředníky, Vaše občany i Vaše seniory, tak aby to splnilo ty požadavky té digitální strategie ČESKO 2030."
+
+
+3. PŘEDSTAVENÍ PROGRAMŮ
+
+═══ Blok A — DIGI ÚŘEDNÍK ═══
+„Prvním projektem je DIGI ÚŘEDNÍK. Je to vlastně vzdělávačka pro Vaše zaměstnance, kdy se jedná o praktické workshopy zaměřené na digitální gramotnost a zrychlení jejich každodenní práce na úřadě, kdy vlastně ukazujeme konkrétní digitální nástroje na reálných příkladech z praxe, které hned můžete u vás aplikovat.
+
+Velkým tématem je samozřejmě využití digitálních nástrojů a umělé inteligence. V rámci samotného kurzu se dozvíte jak nastavit jednoduché automatizace rutinních úkolů u vás na úřadě, dále každý účastník si přímo na kurzu vytvoří vlastního AI asistenta, který mu pak pomáhá s bleskovým chodem jeho úseku — například s analýzou dlouhých dokumentů nebo s vyhledáváním v legislativě.
+
+V rámci tohoto kurzu se také zaměřujeme na proškolení úředníků na digitální služby občanů jako je například Portál občana, identita občana, datová schránka, eDoklady — tak abyste tyto služby mohli poskytnout vaším občanům a měli zase nějakou přidanou hodnotu pro ně."
+
+
+═══ Blok B — DIGI SENIOR ═══
+„Druhým klíčovým bodem je podpora seniorů, aby ani starší spoluobčané nezůstali v digitálním světě odříznutí. V obcích a ve městech jsou dnes populární Univerzity třetího věku i jiné formy seniorského vzdělávání — a přesně v tomto duchu pomáháme seniorům bezpečně ovládnout moderní technologie.
+
+Učíme je základní digitální gramotnosti (jak využívat technologie, jak pracovat s internetem, jak využívat státní portály a úřady, moderní komunikaci s rodinou, aby senioři neztráceli kontakt s mladší generací…). Velmi aktuálně také řešíme digitální bezpečnost seniorů: ukazujeme jak nenaletět kyberpodvodníkům, jak rozpoznat falešné SMS, e-maily či hovory."
+
+
+═══ Blok C — OBČANÉ ═══
+„Poslední program je pro všechny ostatní občany vašeho města — tak abyste podpořili vaše občany v digitální gramotnosti.
+
+• Naučíme je využívat státní portály — Portál občana, datová schránka, Identita občana — takže nemusí stát ve frontě na úřadě, vyřídí to z domova nebo z mobilu.
+• Ukážeme jim, jak bezpečně používat umělou inteligenci v běžném životě — třeba při hledání informací nebo vyřizování věcí online.
+• Probereme bezpečnost na internetu — jak poznat podvodný e-shop, falešnou SMS nebo phishing, než bude pozdě.
+• Naučíme je bezpečně platit mobilem a používat internetové bankovnictví bez strachu.
+
+A tak dále — těch témat tam je několik pro každou kategorii a u nás máte obrovskou výhodu, že si ty kurzy můžete sestavit sami a zvolit si témata, která budou pro vás nejvíce zajímavá."
+
+
+4. KLÍČOVÝ ARGUMENT
+„Jak jsem říkal / říkala — všechny kurzy děláme čistě prakticky. Lidé si vše zkouší přímo na svých zařízeních a máme s tímto konceptem po celé republice obrovský úspěch. Účastníci neodcházejí s teorií, ale s dovednostmi, které hned druhý den využijí v práci nebo v životě."`,
+
+  skola: `(Zatím není vyplněn skript pro ŠKOLY.
+
+Klikni dole na ✏️ Upravit a vlož vlastní call script pro mateřské, základní a střední školy.
+Skript se uloží pro celý tým — všichni obchodníci pak budou vidět tento text u všech školských organizací.)`,
+
+  firma: `(Zatím není vyplněn skript pro FIRMY.
+
+Klikni dole na ✏️ Upravit a vlož vlastní call script pro firmy / ostatní organizace.
+Skript se uloží pro celý tým — všichni obchodníci pak budou vidět tento text u všech firemních organizací.)`
+}
+
 // (todayStr, todayLabel, uid jsou už definované výš)
 
 // Firebase helpers (injected at runtime)
@@ -6668,6 +6725,7 @@ function CRM() {
   const [notes,setNotes]           = useState({})   // {orgId: string}
   const [tasks,setTasks]           = useState([])   // [{id,orgId,spId,text,date,done,createdAt}]
   const [orgDetails,setOrgDetails] = useState({})   // {orgId: {requirements, courseDays}}
+  const [scripts,setScripts]       = useState(DEFAULT_SCRIPTS)  // {obec, skola, firma}
   const [showAddSp,setShowAddSp]   = useState(false)
   const [dbLoading,setDbLoading]   = useState(true)
 
@@ -6685,6 +6743,7 @@ function CRM() {
         if (d.notes) setNotes(d.notes);
         if (d.tasks) setTasks(d.tasks);
         if (d.orgDetails) setOrgDetails(d.orgDetails);
+        if (d.scripts) setScripts({...DEFAULT_SCRIPTS, ...d.scripts});
       }
       setDbLoading(false);
     }, () => setDbLoading(false));
@@ -6698,9 +6757,9 @@ function CRM() {
     if (dbLoading) return;
     clearTimeout(saveTimer.current);
     saveTimer.current = setTimeout(() => {
-      saveState({salespeople,orgOverrides,customOrgs,interactions,trainings,orgRequests,notes,tasks,orgDetails});
+      saveState({salespeople,orgOverrides,customOrgs,interactions,trainings,orgRequests,notes,tasks,orgDetails,scripts});
     }, 1200);
-  }, [salespeople,orgOverrides,customOrgs,interactions,trainings,orgRequests,notes,tasks,orgDetails]);
+  }, [salespeople,orgOverrides,customOrgs,interactions,trainings,orgRequests,notes,tasks,orgDetails,scripts]);
 
   const resolveOrg = useCallback((org)=>{
     const ov=orgOverrides[org.id]; return ov?{...org,...ov}:org;
@@ -6752,7 +6811,7 @@ function CRM() {
       {view==="home"&&<HomeScreen salespeople={salespeople} go={go} managerAuthed={managerAuthed} spPending={spPending} hasReq={hasReq} overdueCount={overdueCount} onAddSp={()=>setShowAddSp(true)}/>}
       {view==="manager_login"&&<ManagerLogin authManager={authManager}/>}
       {view==="manager"&&managerAuthed&&<ManagerDashboard salespeople={salespeople} customOrgs={customOrgs} setCustomOrgs={setCustomOrgs} orgOverrides={orgOverrides} setOrgAssigned={setOrgAssigned} interactions={interactions} trainings={trainings} setTrainings={setTrainings} orgRequests={orgRequests} setOrgRequests={setOrgReqs} resolveOrg={resolveOrg}/>}
-      {currentSp&&<SalespersonProfile sp={currentSp} salespeople={salespeople} customOrgs={customOrgs} setCustomOrgs={setCustomOrgs} orgOverrides={orgOverrides} setOrgAddedBy={setOrgAddedBy} interactions={interactions} setInteractions={setIx} trainings={trainings} setTrainings={setTrainings} orgRequests={orgRequests} setOrgRequests={setOrgReqs} notes={notes} setNotes={setNotes} tasks={tasks} setTasks={setTasks} orgDetails={orgDetails} setOrgDetails={setOrgDetails} resolveOrg={resolveOrg}/>}
+      {currentSp&&<SalespersonProfile sp={currentSp} salespeople={salespeople} customOrgs={customOrgs} setCustomOrgs={setCustomOrgs} orgOverrides={orgOverrides} setOrgAddedBy={setOrgAddedBy} interactions={interactions} setInteractions={setIx} trainings={trainings} setTrainings={setTrainings} orgRequests={orgRequests} setOrgRequests={setOrgReqs} notes={notes} setNotes={setNotes} tasks={tasks} setTasks={setTasks} orgDetails={orgDetails} setOrgDetails={setOrgDetails} scripts={scripts} setScripts={setScripts} resolveOrg={resolveOrg}/>}
       {showAddSp&&<AddSpModal onAdd={addSP} onClose={()=>setShowAddSp(false)}/>}
     </div>
   </>);
@@ -7122,7 +7181,7 @@ function AIAssistant({sp, allMy, expandedOrg, notes, interactions, orgDetails, t
   </>, document.body)
 }
 
-function SalespersonProfile({sp,salespeople,customOrgs,setCustomOrgs,orgOverrides,setOrgAddedBy,interactions,setInteractions,trainings,setTrainings,orgRequests,setOrgRequests,notes,setNotes,tasks,setTasks,orgDetails,setOrgDetails,resolveOrg}){
+function SalespersonProfile({sp,salespeople,customOrgs,setCustomOrgs,orgOverrides,setOrgAddedBy,interactions,setInteractions,trainings,setTrainings,orgRequests,setOrgRequests,notes,setNotes,tasks,setTasks,orgDetails,setOrgDetails,scripts,setScripts,resolveOrg}){
   const [mainTab,setMainTab]     = useState("orgs")  // orgs | tasks | search
   const [activeFolder,setFolder] = useState("all")
   const [activeCat,setActiveCat] = useState("vse")  // vse | obec | skolka | skola
@@ -7135,6 +7194,7 @@ function SalespersonProfile({sp,salespeople,customOrgs,setCustomOrgs,orgOverride
   const [newTaskText,setNTT]     = useState({})
   const [newTaskDate,setNTD]     = useState({})
   const [trainInputs,setTrIn]    = useState({})
+  const [scriptEditing,setScriptEd] = useState(null)  // {type: 'obec'|'skola'|'firma', text: '...'}
 
   const myCustom  = customOrgs.filter(o=>o.addedBy===sp.id)
   const asgCustom = customOrgs.filter(o=>o.assignedTo===sp.id&&o.addedBy!==sp.id)
@@ -7340,7 +7400,7 @@ function SalespersonProfile({sp,salespeople,customOrgs,setCustomOrgs,orgOverride
         </div>}
 
         <div className="org-detail-tabs">
-          {[["status","📊 Status"],["training","📅 Školení"],["tasks","✅ Úkoly"],["notes","📝 Poznámky"],["edit","✏️ Upravit"]].map(([t,l])=>(
+          {[["status","📊 Status"],["script","📞 Skript"],["training","📅 Školení"],["tasks","✅ Úkoly"],["notes","📝 Poznámky"],["edit","✏️ Upravit"]].map(([t,l])=>(
             <button key={t} className={`odt ${curTab===t?"active":""}`} onClick={()=>setOrgTabActive(org.id,t)}>{l}</button>
           ))}
         </div>
@@ -7363,6 +7423,43 @@ function SalespersonProfile({sp,salespeople,customOrgs,setCustomOrgs,orgOverride
               {org.web&&<a href={org.web.startsWith("http")?org.web:"https://"+org.web} target="_blank" rel="noopener" className="web-link">🌐 Webové stránky</a>}
             </div>
           </>}
+
+          {/* SCRIPT TAB */}
+          {curTab==="script"&&(()=>{
+            const stype = getScriptType(org.type)
+            const isEditing = scriptEditing && scriptEditing.orgId === org.id
+            return(<>
+              {/* Lepkavý zelený pruh s telefonem — abys při čtení skriptu mohl volat */}
+              <div style={{position:"sticky",top:0,zIndex:10,margin:"-14px -14px 12px",padding:"12px 14px",background:"linear-gradient(135deg,#16A34A 0%,#15803D 100%)",color:"#fff",borderBottom:"3px solid #fff",boxShadow:"0 2px 6px rgba(0,0,0,.1)"}}>
+                <div style={{fontSize:11,opacity:.9,marginBottom:6,fontWeight:600}}>{SCRIPT_LABELS[stype]} · {org.organization}</div>
+                <div style={{display:"flex",gap:8,flexWrap:"wrap",alignItems:"center"}}>
+                  {org.phone
+                    ? <a href={"tel:"+org.phone.replace(/\s/g,"")} style={{background:"#fff",color:"#15803D",padding:"9px 16px",borderRadius:10,fontWeight:700,textDecoration:"none",fontSize:14,display:"inline-flex",alignItems:"center",gap:6}}>📞 Volat {org.phone}</a>
+                    : <span style={{background:"rgba(255,255,255,.2)",color:"#fff",padding:"7px 12px",borderRadius:8,fontSize:12}}>⚠️ Není telefon</span>}
+                  {org.email&&<a href={"mailto:"+org.email} style={{background:"rgba(255,255,255,.2)",color:"#fff",padding:"7px 12px",borderRadius:8,fontWeight:600,textDecoration:"none",fontSize:12}}>✉️ Email</a>}
+                  {org.contact&&<span style={{fontSize:11,marginLeft:"auto",opacity:.95}}>👤 {org.contact}</span>}
+                </div>
+              </div>
+
+              {isEditing
+                ? <>
+                    <div style={{fontSize:11,color:"var(--muted)",marginBottom:6}}>📝 Upravuješ skript pro: <b style={{color:"var(--ink)"}}>{SCRIPT_LABELS[stype]}</b> (sdílí se s celým týmem)</div>
+                    <textarea className="notes-area" value={scriptEditing.text} onChange={e=>setScriptEd({...scriptEditing, text:e.target.value})} style={{minHeight:400,fontSize:13,lineHeight:1.6,fontFamily:"'Sora',sans-serif"}}/>
+                    <div style={{display:"flex",gap:6,marginTop:8,flexWrap:"wrap"}}>
+                      <button className="btn-green" onClick={()=>{setScripts(p=>({...p,[stype]:scriptEditing.text}));setScriptEd(null)}}>💾 Uložit pro celý tým</button>
+                      <button className="btn-ghost" onClick={()=>setScriptEd(null)}>Zrušit</button>
+                      <button className="btn-sm" onClick={()=>{if(window.confirm("Vrátit původní výchozí skript pro tento typ?"))setScriptEd({...scriptEditing,text:DEFAULT_SCRIPTS[stype]})}}>↺ Reset na výchozí</button>
+                    </div>
+                  </>
+                : <>
+                    <div style={{display:"flex",alignItems:"center",gap:8,marginBottom:10,fontSize:11,color:"var(--muted)"}}>
+                      <span>Skript pro celý typ <b style={{color:"var(--ink)"}}>{SCRIPT_LABELS[stype]}</b></span>
+                      <button className="btn-sm" style={{marginLeft:"auto"}} onClick={()=>setScriptEd({orgId:org.id, type:stype, text:scripts[stype]||DEFAULT_SCRIPTS[stype]})}>✏️ Upravit</button>
+                    </div>
+                    <div style={{whiteSpace:"pre-wrap",lineHeight:1.7,fontSize:13.5,padding:"4px 2px",color:"#222"}}>{scripts[stype]||DEFAULT_SCRIPTS[stype]}</div>
+                  </>}
+            </>)
+          })()}
 
           {/* TRAINING TAB */}
           {curTab==="training"&&<>
