@@ -6648,6 +6648,16 @@ const STATUS_TO_FOLDER = {
   emailed:"email",  no_contact:"nekontaktovat", termin:"termin",
 }
 
+// ─── EMAIL ŠABLONY ────────────────────────────────────────────────────────────
+const EMAIL_TEMPLATES = [
+  {id:"uvodni",     label:"👋 Úvodní oslovení",     desc:"Cold email novému kontaktu"},
+  {id:"followup",   label:"🔄 Follow-up",           desc:"Připomenutí po prvním kontaktu"},
+  {id:"setkani",    label:"🤝 Po setkání",          desc:"Děkovný + shrnutí domluveného"},
+  {id:"reaktivace", label:"💤 Reaktivace",          desc:"Po nezájmu nebo dlouhé pauze"},
+  {id:"nabidka",    label:"💰 Cenová nabídka",      desc:"S konkrétní cenou + parametry"},
+  {id:"pozvanka",   label:"📅 Pozvánka na školení", desc:"Konkrétní termín kurzu"},
+]
+
 // ─── CALL SCRIPTY ─────────────────────────────────────────────────────────────
 const getScriptType = (type) => {
   if (type === "Obec") return "obec"
@@ -6874,6 +6884,163 @@ function ManagerLogin({authManager}){
 }
 
 // ─── SALESPERSON PROFILE ──────────────────────────────────────────────────────
+// ─── AI RANNÍ BRIEF ──────────────────────────────────────────────────────────
+function AIBrief({sp, allMy, interactions, tasks, customOrgs, notes}) {
+  const today = todayStr()
+  const briefKey = "crm_brief_"+sp.id+"_"+today
+  const [brief, setBrief]       = useState(()=>{try{return localStorage.getItem(briefKey)||""}catch(_){return""}})
+  const [loading, setLoading]   = useState(false)
+  const [collapsed, setCollapsed] = useState(false)
+
+  const generate = async () => {
+    const apiKey = (()=>{try{return localStorage.getItem("crm_ai_key")||""}catch(_){return""}})()
+    if(!apiKey){alert("Nastav nejdřív Anthropic API klíč v AI Asistentovi (🤖 vpravo dole → 🔑)");return}
+    setLoading(true)
+    const yest = new Date(); yest.setDate(yest.getDate()-1)
+    const yStr = yest.toISOString().split("T")[0]
+    const yIx = interactions.filter(i=>i.spId===sp.id&&i.date===yStr)
+    const tIx = interactions.filter(i=>i.spId===sp.id&&i.date===today)
+    const overdueTasks = tasks.filter(t=>t.spId===sp.id&&!t.done&&t.date&&t.date<today)
+    const todayTasks   = tasks.filter(t=>t.spId===sp.id&&!t.done&&t.date===today)
+    const upcoming     = tasks.filter(t=>t.spId===sp.id&&!t.done&&t.date&&t.date>today).slice(0,5)
+    const orgName = id=>([...customOrgs,...ALL_ORGS_DB].find(o=>o.id===id)||{}).organization||"?"
+    const cntByStatus = ix => ["interest","no_interest","postponed","emailed","termin"].map(s=>s+":"+ix.filter(i=>i.status===s).length).join(", ")
+    const termOrgs = allMy.filter(o=>{const ix=interactions.filter(i=>i.orgId===o.id&&i.spId===sp.id).sort((a,b)=>b.date>a.date?1:-1);return ix[0]&&ix[0].status==="termin"})
+
+    const ctx = "Obchodník: "+sp.name+"\nDatum: "+today+
+      "\n\nVčera ("+yStr+"): "+yIx.length+" interakcí ["+cntByStatus(yIx)+"]"+
+      "\nDnes zatím: "+tIx.length+" interakcí ["+cntByStatus(tIx)+"]"+
+      "\n\nPO TERMÍNU: "+overdueTasks.length+" úkolů"+(overdueTasks.length?":\n"+overdueTasks.slice(0,6).map(t=>"  • "+t.text+" — "+orgName(t.orgId)+" (od "+t.date+")").join("\n"):"")+
+      "\nDNES SPLNIT: "+todayTasks.length+(todayTasks.length?":\n"+todayTasks.map(t=>"  • "+t.text+" — "+orgName(t.orgId)).join("\n"):"")+
+      "\nBudoucí (max 5):"+(upcoming.length?"\n"+upcoming.map(t=>"  • "+t.text+" — "+orgName(t.orgId)+" ("+t.date+")").join("\n"):" žádné")+
+      "\n\nCelkem organizací u sebe: "+allMy.length+
+      "\nOrganizace se statusem TERMÍN: "+termOrgs.length+(termOrgs.length?" ("+termOrgs.slice(0,5).map(o=>o.organization).join(", ")+")":"")
+
+    const sysPrompt = "Jsi obchodní kouč pro CRM Pecka. Napiš velmi krátký denní brief (5-7 řádků) pro obchodníka prodávajícího vzdělávací AI kurzy obcím, školám a firmám. Použij emoji odrážky a stručné věty. Struktura:\n1) 1 věta — shrnutí včerejška\n2) 1-2 věty — co dnes čeká\n3) 2-3 KONKRÉTNÍ DOPORUČENÍ — jméno organizace + konkrétní akce na dnes\n\nBez úvodu, bez závěru, jen brief. Pokud nemá nic naplánováno, motivuj k akvizici nových kontaktů."
+
+    try {
+      const resp = await fetch("https://api.anthropic.com/v1/messages", {
+        method:"POST",
+        headers:{"x-api-key":apiKey,"anthropic-version":"2023-06-01","anthropic-dangerous-direct-browser-access":"true","content-type":"application/json"},
+        body: JSON.stringify({model:"claude-sonnet-4-5", max_tokens:600, system:sysPrompt, messages:[{role:"user", content:ctx}]})
+      })
+      if(!resp.ok){const t=await resp.text();setBrief("❌ "+resp.status+": "+t.slice(0,200));setLoading(false);return}
+      const data = await resp.json()
+      const txt = (data.content&&data.content[0]&&data.content[0].text)||"(prázdná odpověď)"
+      setBrief(txt); try{localStorage.setItem(briefKey,txt)}catch(_){}
+    } catch(e){ setBrief("❌ "+e.message) }
+    setLoading(false)
+  }
+
+  return(<div style={{background:"linear-gradient(135deg,#FEF3C7 0%,#FED7AA 100%)",border:"1.5px solid #FCD34D",borderRadius:14,padding:"11px 14px",marginBottom:12,boxShadow:"0 1px 3px rgba(0,0,0,.06)"}}>
+    <div style={{display:"flex",alignItems:"center",gap:8,flexWrap:"wrap"}}>
+      <span style={{fontSize:18}}>🌅</span>
+      <b style={{fontSize:13,color:"#92400E"}}>Ranní brief — {todayLabel()}</b>
+      <div style={{marginLeft:"auto",display:"flex",gap:5,flexWrap:"wrap"}}>
+        {brief&&<button className="btn-sm" onClick={()=>setCollapsed(c=>!c)}>{collapsed?"▼":"▲"}</button>}
+        <button className="btn-sm green" onClick={generate} disabled={loading}>{loading?"⏳ AI píše…":(brief?"🔄 Aktualizovat":"✨ Vygenerovat brief")}</button>
+      </div>
+    </div>
+    {brief&&!collapsed&&<div style={{whiteSpace:"pre-wrap",fontSize:12.5,lineHeight:1.65,color:"#451A03",marginTop:8,paddingTop:8,borderTop:"1px dashed #FCD34D"}}>{brief}</div>}
+  </div>)
+}
+
+// ─── EMAIL COMPOSER (s AI personalizací) ─────────────────────────────────────
+function EmailComposer({org, sp, notes, interactions, orgDetails}) {
+  const [selected, setSelected] = useState(null)
+  const [subject, setSubject]   = useState("")
+  const [body, setBody]         = useState("")
+  const [loading, setLoading]   = useState(false)
+  const [copied, setCopied]     = useState(false)
+
+  const generate = async (templateId) => {
+    const apiKey = (()=>{try{return localStorage.getItem("crm_ai_key")||""}catch(_){return""}})()
+    if(!apiKey){alert("Nastav nejdřív Anthropic API klíč v AI Asistentovi (🤖 vpravo dole → 🔑)");return}
+    const tpl = EMAIL_TEMPLATES.find(t=>t.id===templateId); if(!tpl)return
+    setSelected(templateId); setLoading(true); setSubject(""); setBody("")
+    const note = notes[org.id]||""
+    const ix = interactions.filter(i=>i.orgId===org.id&&i.spId===sp.id).slice(-5)
+    const det = orgDetails[org.id]||{}
+
+    const ctx = "=== ORGANIZACE ===\nNázev: "+org.organization+
+      "\nTyp: "+(org.type||"?")+
+      (org.contact?"\nKontaktní osoba: "+org.contact:"")+
+      (org.email?"\nEmail: "+org.email:"")+
+      (org.okres?"\nOkres: "+org.okres:"")+
+      (note?"\nPoznámky obchodníka: "+note:"")+
+      (det.requirements?"\nZjištěné požadavky: "+det.requirements:"")+
+      (ix.length?"\nPosledních interakcí: "+ix.map(i=>i.status+" ("+i.date+")").join(", "):"")+
+      "\n\nObchodník: "+sp.name
+
+    const sysPrompt = "Jsi copywriter pro PECKA — Edukační poradenské centrum, které prodává vzdělávací kurzy AI a digitální gramotnosti obcím, školám, firmám a seniorům v ČR. Napiš JEDEN konkrétní email v češtině. Profesionální ale lidský tón, 6-10 vět, konkrétní výzva k akci. Pokud organizace nemá kontaktní osobu, oslov obecně \"Dobrý den\". Podepiš jménem obchodníka.\n\nVrať POUZE samotný email v přesně tomto formátu:\n\nPŘEDMĚT: <předmět>\n\n<tělo emailu>\n\nŽÁDNÉ vysvětlení před ani za. Žádné komentáře typu \"Zde je váš email\"."
+    const userMsg = "Napiš email typu \""+tpl.label+"\" ("+tpl.desc+") pro tuto organizaci:\n\n"+ctx
+
+    try {
+      const resp = await fetch("https://api.anthropic.com/v1/messages", {
+        method:"POST",
+        headers:{"x-api-key":apiKey,"anthropic-version":"2023-06-01","anthropic-dangerous-direct-browser-access":"true","content-type":"application/json"},
+        body: JSON.stringify({model:"claude-sonnet-4-5", max_tokens:1500, system:sysPrompt, messages:[{role:"user", content:userMsg}]})
+      })
+      if(!resp.ok){const t=await resp.text();setBody("❌ "+resp.status+": "+t.slice(0,300));setLoading(false);return}
+      const data = await resp.json()
+      const txt = ((data.content&&data.content[0]&&data.content[0].text)||"").trim()
+      const m = txt.match(/^P[ŘR]EDM[ĚE]T\s*:?\s*(.+?)\n+([\s\S]+)$/i)
+      if(m){ setSubject(m[1].trim()); setBody(m[2].trim()) }
+      else { setSubject(tpl.label+" — "+org.organization); setBody(txt) }
+    } catch(e){ setBody("❌ Chyba: "+e.message) }
+    setLoading(false)
+  }
+
+  const openMail = () => {
+    if(!org.email){alert("Organizace nemá vyplněný email — přidej ho v záložce Upravit");return}
+    window.location.href = "mailto:"+org.email+"?subject="+encodeURIComponent(subject)+"&body="+encodeURIComponent(body)
+  }
+  const copyAll = () => {
+    try{ navigator.clipboard.writeText("Předmět: "+subject+"\n\n"+body); setCopied(true); setTimeout(()=>setCopied(false),1500) }catch(_){}
+  }
+
+  return(<>
+    <div style={{display:"flex",alignItems:"center",gap:8,marginBottom:10,flexWrap:"wrap",fontSize:11}}>
+      <span style={{fontWeight:600,color:"var(--muted)"}}>✉️ Generátor emailů s AI</span>
+      {org.email
+        ? <span style={{color:"#16A34A",fontWeight:600}}>→ {org.email}</span>
+        : <span style={{color:"#DC2626",fontWeight:600}}>⚠️ Org nemá email</span>}
+    </div>
+
+    <div style={{display:"grid",gridTemplateColumns:"repeat(auto-fill,minmax(170px,1fr))",gap:6,marginBottom:12}}>
+      {EMAIL_TEMPLATES.map(t=>(
+        <button key={t.id} className={`btn-sm ${selected===t.id?"green":""}`} onClick={()=>generate(t.id)} disabled={loading} style={{textAlign:"left",padding:"8px 10px",lineHeight:1.4,height:"auto"}}>
+          <div style={{fontWeight:700,fontSize:11}}>{t.label}</div>
+          <div style={{fontSize:9,opacity:.7,marginTop:2}}>{t.desc}</div>
+        </button>
+      ))}
+    </div>
+
+    {loading&&<div style={{padding:"30px 0",textAlign:"center",color:"var(--muted)",fontSize:12}}>⏳ AI píše email pro {org.organization}…</div>}
+
+    {(subject||body)&&!loading&&<>
+      <div style={{marginBottom:8}}>
+        <div className="sec-hd" style={{marginBottom:4}}>Předmět</div>
+        <input className="inp" value={subject} onChange={e=>setSubject(e.target.value)}/>
+      </div>
+      <div style={{marginBottom:10}}>
+        <div className="sec-hd" style={{marginBottom:4}}>Tělo emailu</div>
+        <textarea className="notes-area" value={body} onChange={e=>setBody(e.target.value)} style={{minHeight:260,fontFamily:"'Sora',sans-serif",fontSize:13,lineHeight:1.55}}/>
+      </div>
+      <div style={{display:"flex",gap:6,flexWrap:"wrap"}}>
+        <button className="btn-green" onClick={openMail} disabled={!org.email}>📤 Otevřít v Outlook / Gmail</button>
+        <button className="btn-sm" onClick={copyAll}>{copied?"✓ Zkopírováno":"📋 Kopírovat"}</button>
+        {selected&&<button className="btn-sm" onClick={()=>generate(selected)}>🔄 Znovu</button>}
+        <button className="btn-sm" onClick={()=>{setSubject("");setBody("");setSelected(null)}}>🗑 Vyčistit</button>
+      </div>
+    </>}
+
+    {!subject&&!body&&!loading&&<div style={{padding:"24px 10px",textAlign:"center",color:"var(--muted)",fontSize:12,lineHeight:1.7}}>
+      Vyber šablonu výše → AI vygeneruje hotový email s daty této organizace (jméno kontaktu, poznámky, předchozí interakce).<br/>Pak ho můžeš upravit a otevřít rovnou v poštovním klientovi.
+    </div>}
+  </>)
+}
+
 // ─── MAPA ORGANIZACÍ (Leaflet + OSM + Nominatim s cache) ─────────────────────
 function MapView({allMy, sp, getAllTimeStatus, openOrgDetail}) {
   const cacheKey = "crm_geo_v1"
@@ -7195,6 +7362,8 @@ function SalespersonProfile({sp,salespeople,customOrgs,setCustomOrgs,orgOverride
   const [newTaskDate,setNTD]     = useState({})
   const [trainInputs,setTrIn]    = useState({})
   const [scriptEditing,setScriptEd] = useState(null)  // {type: 'obec'|'skola'|'firma', text: '...'}
+  const [aiTaskSugg,setAITaskSugg]  = useState({})    // {orgId: [{date,text}]}
+  const [aiTaskLoading,setAITaskLd] = useState(null)  // orgId
 
   const myCustom  = customOrgs.filter(o=>o.addedBy===sp.id)
   const asgCustom = customOrgs.filter(o=>o.assignedTo===sp.id&&o.addedBy!==sp.id)
@@ -7310,6 +7479,56 @@ function SalespersonProfile({sp,salespeople,customOrgs,setCustomOrgs,orgOverride
   const toggleTask=id=>setTasks(p=>p.map(t=>t.id===id?{...t,done:!t.done}:t))
   const deleteTask=id=>setTasks(p=>p.filter(t=>t.id!==id))
 
+  const generateAITasks = async (org) => {
+    const apiKey = (()=>{try{return localStorage.getItem("crm_ai_key")||""}catch(_){return""}})()
+    if(!apiKey){alert("Nastav nejdřív Anthropic API klíč v AI Asistentovi (🤖 vpravo dole → 🔑)");return}
+    setAITaskLd(org.id)
+    const status = getAllTimeStatus(org.id)
+    const sm = STATUS_META[status]
+    const note = notes[org.id]||""
+    const ix = interactions.filter(i=>i.orgId===org.id&&i.spId===sp.id).slice(-5)
+    const det = orgDetails[org.id]||{}
+    const existing = tasks.filter(t=>t.orgId===org.id&&t.spId===sp.id&&!t.done)
+    const ctx = "Organizace: "+org.organization+
+      "\nTyp: "+(org.type||"?")+
+      "\nDnes: "+today+
+      "\nAktuální status: "+(sm?sm.label:"žádný")+
+      (note?"\nPoznámky: "+note:"")+
+      (det.requirements?"\nPožadavky: "+det.requirements:"")+
+      (ix.length?"\nPosledních interakcí: "+ix.map(i=>i.status+" ("+i.date+")").join(", "):"")+
+      (existing.length?"\nUž má otevřené úkoly: "+existing.map(t=>t.text+(t.date?" do "+t.date:"")).join("; "):"")
+
+    const sysPrompt = "Jsi obchodní kouč. Navrhni 2-4 konkrétní follow-up úkoly pro obchodníka u této organizace podle stavu. Každý úkol = JEDEN řádek ve formátu:\nTASK | YYYY-MM-DD | text úkolu\n\nPravidla:\n- max 4 úkoly, raději 2-3 dobré\n- datumy realistické (3 dny až 2 měsíce od dneška podle situace)\n- ŽÁDNÉ duplicity s už existujícími úkoly\n- 'interest' → posunout obchod (cena, termín, prezentace)\n- 'termin' → příprava + follow-up po\n- 'postponed' → reaktivace za týden-měsíc\n- 'emailed' → telefonát za 3-5 dní\n- 'no_interest' → reaktivace za 3-6 měsíců\n- prázdný status → úvodní oslovení (telefon, email)\n\nVrať POUZE řádky TASK |..., nic jiného."
+
+    try {
+      const resp = await fetch("https://api.anthropic.com/v1/messages", {
+        method:"POST",
+        headers:{"x-api-key":apiKey,"anthropic-version":"2023-06-01","anthropic-dangerous-direct-browser-access":"true","content-type":"application/json"},
+        body: JSON.stringify({model:"claude-sonnet-4-5", max_tokens:500, system:sysPrompt, messages:[{role:"user", content:ctx}]})
+      })
+      if(!resp.ok){const t=await resp.text();alert("AI chyba "+resp.status+": "+t.slice(0,200));setAITaskLd(null);return}
+      const data = await resp.json()
+      const txt = (data.content&&data.content[0]&&data.content[0].text)||""
+      const lines = txt.split("\n").filter(l=>l.trim().startsWith("TASK"))
+      const suggestions = lines.map(l=>{
+        const parts = l.split("|").map(s=>s.trim())
+        if(parts.length>=3 && /^\d{4}-\d{2}-\d{2}$/.test(parts[1])) return {date:parts[1], text:parts.slice(2).join(" | ")}
+        return null
+      }).filter(Boolean)
+      setAITaskSugg(p=>({...p,[org.id]:suggestions}))
+    } catch(e){ alert("Chyba AI: "+e.message) }
+    setAITaskLd(null)
+  }
+  const acceptAITask = (orgId, sugg) => {
+    setTasks(p=>[...p,{id:"tk"+uid(),orgId,spId:sp.id,text:sugg.text,date:sugg.date,done:false,createdAt:today}])
+    setAITaskSugg(p=>({...p,[orgId]:(p[orgId]||[]).filter(s=>s!==sugg)}))
+  }
+  const acceptAllAITasks = (orgId) => {
+    const sugg = aiTaskSugg[orgId]||[]
+    sugg.forEach(s=>setTasks(p=>[...p,{id:"tk"+uid(),orgId,spId:sp.id,text:s.text,date:s.date,done:false,createdAt:today}]))
+    setAITaskSugg(p=>({...p,[orgId]:[]}))
+  }
+
   const setNote=(orgId,val)=>setNotes(p=>({...p,[orgId]:val}))
   const setOrgDet=(orgId,patch)=>setOrgDetails(p=>({...p,[orgId]:{...(p[orgId]||{}),...patch}}))
 
@@ -7400,7 +7619,7 @@ function SalespersonProfile({sp,salespeople,customOrgs,setCustomOrgs,orgOverride
         </div>}
 
         <div className="org-detail-tabs">
-          {[["status","📊 Status"],["script","📞 Skript"],["training","📅 Školení"],["tasks","✅ Úkoly"],["notes","📝 Poznámky"],["edit","✏️ Upravit"]].map(([t,l])=>(
+          {[["status","📊 Status"],["script","📞 Skript"],["email","✉️ Email"],["training","📅 Školení"],["tasks","✅ Úkoly"],["notes","📝 Poznámky"],["edit","✏️ Upravit"]].map(([t,l])=>(
             <button key={t} className={`odt ${curTab===t?"active":""}`} onClick={()=>setOrgTabActive(org.id,t)}>{l}</button>
           ))}
         </div>
@@ -7461,6 +7680,9 @@ function SalespersonProfile({sp,salespeople,customOrgs,setCustomOrgs,orgOverride
             </>)
           })()}
 
+          {/* EMAIL TAB */}
+          {curTab==="email"&&<EmailComposer org={org} sp={sp} notes={notes} interactions={interactions} orgDetails={orgDetails}/>}
+
           {/* TRAINING TAB */}
           {curTab==="training"&&<>
             <div style={{marginBottom:12}}>
@@ -7503,7 +7725,25 @@ function SalespersonProfile({sp,salespeople,customOrgs,setCustomOrgs,orgOverride
 
           {/* TASKS TAB */}
           {curTab==="tasks"&&<>
-            <div className="sec-hd">Úkoly & připomínky</div>
+            <div style={{display:"flex",alignItems:"center",gap:8,marginBottom:9,flexWrap:"wrap"}}>
+              <div className="sec-hd" style={{margin:0}}>Úkoly & připomínky</div>
+              <button className="btn-sm" style={{marginLeft:"auto",background:"#EDE9FE",color:"#5B21B6",border:"1px solid #DDD6FE"}} onClick={()=>generateAITasks(org)} disabled={aiTaskLoading===org.id}>{aiTaskLoading===org.id?"⏳ AI navrhuje…":"🤖 Navrhnout úkoly"}</button>
+            </div>
+            {aiTaskSugg[org.id]&&aiTaskSugg[org.id].length>0&&<div style={{background:"linear-gradient(135deg,#EDE9FE 0%,#F5F3FF 100%)",border:"1.5px solid #DDD6FE",borderRadius:10,padding:"9px 10px",marginBottom:10}}>
+              <div style={{fontSize:11,fontWeight:700,color:"#5B21B6",marginBottom:7,display:"flex",alignItems:"center",gap:6}}>
+                🤖 AI návrhy ({aiTaskSugg[org.id].length})
+                <button className="btn-sm green" style={{marginLeft:"auto",padding:"3px 8px",fontSize:10}} onClick={()=>acceptAllAITasks(org.id)}>+ Přidat vše</button>
+                <button className="btn-sm" style={{padding:"3px 8px",fontSize:10}} onClick={()=>setAITaskSugg(p=>({...p,[org.id]:[]}))}>✕</button>
+              </div>
+              {aiTaskSugg[org.id].map((s,i)=>(
+                <div key={i} style={{display:"flex",alignItems:"center",gap:6,marginBottom:4,padding:"6px 9px",background:"#fff",borderRadius:6,fontSize:11.5,border:"1px solid #E2DED6"}}>
+                  <span style={{fontFamily:"'JetBrains Mono',monospace",fontSize:10,color:"#7C3AED",fontWeight:600}}>{s.date}</span>
+                  <span style={{flex:1}}>{s.text}</span>
+                  <button className="btn-sm green" onClick={()=>acceptAITask(org.id, s)} style={{padding:"3px 8px",fontSize:10}}>+ Přidat</button>
+                  <button className="btn-sm" onClick={()=>setAITaskSugg(p=>({...p,[org.id]:p[org.id].filter(x=>x!==s)}))} style={{padding:"3px 7px",fontSize:10}}>✕</button>
+                </div>
+              ))}
+            </div>}
             {tasks.filter(t=>t.orgId===org.id&&t.spId===sp.id).map(t=>{
               const od=t.date&&t.date<today&&!t.done
               return(<div key={t.id} className={`task-item ${od?"overdue":""} ${t.done?"done-task":""}`}>
@@ -7744,6 +7984,7 @@ function SalespersonProfile({sp,salespeople,customOrgs,setCustomOrgs,orgOverride
 
       {/* ORGS TAB */}
       {mainTab==="orgs"&&<>
+        <AIBrief sp={sp} allMy={allMy} interactions={interactions} tasks={tasks} customOrgs={customOrgs} notes={notes}/>
         {/* CATEGORY TABS */}
         <div className="cat-tabs">
           {[
