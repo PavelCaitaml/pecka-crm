@@ -6538,9 +6538,7 @@ const STATUS_TO_FOLDER = {
   emailed:"email",  no_contact:"nekontaktovat", termin:"termin",
 }
 
-const todayStr   = () => new Date().toISOString().split("T")[0]
-const todayLabel = () => new Date().toLocaleDateString("cs-CZ",{weekday:"long",day:"numeric",month:"long",year:"numeric"})
-const uid        = () => Math.random().toString(36).slice(2,9)
+// (todayStr, todayLabel, uid jsou už definované výš)
 
 // Firebase helpers (injected at runtime)
 async function saveState(data) {
