@@ -287,8 +287,7 @@ body,html{font-family:'Sora',sans-serif;background:var(--bg);color:var(--ink)}
     // Small delay to ensure Babel script has processed
     setTimeout(() => window.dispatchEvent(new Event('fb-ready')), 100);
   </script>
-  <script type="text/babel" data-presets="react">
-try { bootLog('5. Babel skript začíná parsovat'); } catch(_) {}
+  <script type="text/plain" id="appsrc">
 const { useState, useMemo, useCallback, useEffect, useRef } = React;
 
 
@@ -7464,6 +7463,32 @@ if (window._db) {
     }
   }, 3000);
 }
+  </script>
+  <script>
+    // Manuální transpile přes Babel.transform s plnou chybovou hláškou
+    window.addEventListener('load', function() {
+      bootLog('5. Manuální transpile Babelem…');
+      var src = document.getElementById('appsrc').textContent;
+      var out;
+      try {
+        out = Babel.transform(src, {presets: ['react']});
+      } catch (e) {
+        var loc = (e.loc ? ' (řádek ' + e.loc.line + ', sloupec ' + e.loc.column + ')' : '');
+        var msg = '💥 BABEL TRANSPILE ERROR' + loc + ':\n\n' + (e.message||e);
+        if (e.codeFrame) msg += '\n\n' + e.codeFrame;
+        document.body.innerHTML = '<pre style="padding:20px;color:#b00;white-space:pre-wrap;font:13px monospace;background:#fff;overflow:auto">' + msg.replace(/[<>&]/g,function(c){return {'<':'&lt;','>':'&gt;','&':'&amp;'}[c]}) + '</pre>';
+        return;
+      }
+      bootLog('6. Transpile OK (' + out.code.length + ' znaků), spouštím…');
+      try {
+        // indirect eval = global scope
+        (0, eval)(out.code);
+        bootLog('7. Skript dokončen');
+      } catch (e) {
+        var msg = '💥 RUNTIME ERROR ve skriptu:\n\n' + (e.message||e) + '\n\n' + (e.stack||'');
+        document.body.innerHTML = '<pre style="padding:20px;color:#b00;white-space:pre-wrap;font:13px monospace;background:#fff;overflow:auto">' + msg.replace(/[<>&]/g,function(c){return {'<':'&lt;','>':'&gt;','&':'&amp;'}[c]}) + '</pre>';
+      }
+    });
   </script>
 </body>
 </html>
