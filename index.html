@@ -249,9 +249,36 @@ body,html{font-family:'Sora',sans-serif;background:var(--bg);color:var(--ink)}
 </head>
 <body>
   <div id="root"></div>
-  <script crossorigin src="https://unpkg.com/react@18/umd/react.production.min.js"></script>
-  <script crossorigin src="https://unpkg.com/react-dom@18/umd/react-dom.production.min.js"></script>
-  <script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
+  <div id="boot-status" style="position:fixed;top:8px;left:8px;font:12px monospace;color:#666;background:#fff;padding:4px 8px;border-radius:6px;z-index:9999">⏳ Načítám…</div>
+  <script>
+    // ── DIAGNOSTIKA: ukáže chybu přímo na obrazovce ──
+    window.__bootLog = [];
+    function bootLog(msg) {
+      window.__bootLog.push(msg);
+      var el = document.getElementById('boot-status');
+      if (el) el.textContent = msg;
+    }
+    window.addEventListener('error', function(e) {
+      var msg = 'CHYBA: ' + (e.message||'?') + ' @ ' + (e.filename||'?') + ':' + (e.lineno||'?') + ':' + (e.colno||'?');
+      if (e.error && e.error.stack) msg += '\n\nStack:\n' + e.error.stack;
+      document.body.innerHTML = '<pre style="padding:20px;color:#b00;white-space:pre-wrap;font:13px monospace;background:#fff">'+msg.replace(/[<>&]/g,function(c){return {'<':'&lt;','>':'&gt;','&':'&amp;'}[c]})+'\n\n--- Boot log ---\n'+window.__bootLog.join('\n')+'</pre>';
+    });
+    window.addEventListener('unhandledrejection', function(e) {
+      var msg = 'PROMISE REJECTION: ' + ((e.reason && (e.reason.message||e.reason.stack)) || e.reason);
+      document.body.innerHTML = '<pre style="padding:20px;color:#b00;white-space:pre-wrap;font:13px monospace;background:#fff">'+msg+'\n\n--- Boot log ---\n'+window.__bootLog.join('\n')+'</pre>';
+    });
+    bootLog('1. HTML načten, čekám na React/Babel/Firebase…');
+    // Pojistka: pokud za 8 sekund nezmizí #root prázdný, ukaž stav
+    setTimeout(function() {
+      var root = document.getElementById('root');
+      if (root && root.childElementCount === 0) {
+        document.body.innerHTML = '<pre style="padding:20px;color:#b00;white-space:pre-wrap;font:13px monospace;background:#fff">⚠️ Po 8 sekundách se nic nevykreslilo (žádná JS chyba se nezachytila — pravděpodobně Babel compile error v console.log).\n\n--- Boot log ---\n'+window.__bootLog.join('\n')+'\n\n--- Globální stav ---\nReact: '+(typeof React)+'\nReactDOM: '+(typeof ReactDOM)+'\nBabel: '+(typeof Babel)+'\nwindow.fbApp: '+(typeof window.fbApp)+'\nwindow._db: '+(typeof window._db)+'\nwindow.__babelDone: '+(typeof window.__babelDone)+'</pre>';
+      }
+    }, 8000);
+  </script>
+  <script crossorigin src="https://unpkg.com/react@18/umd/react.production.min.js" onload="bootLog('2. React nahrán')" onerror="bootLog('❌ React selhal')"></script>
+  <script crossorigin src="https://unpkg.com/react-dom@18/umd/react-dom.production.min.js" onload="bootLog('3. ReactDOM nahrán')" onerror="bootLog('❌ ReactDOM selhal')"></script>
+  <script src="https://unpkg.com/@babel/standalone/babel.min.js" onload="bootLog('4. Babel nahrán')" onerror="bootLog('❌ Babel selhal')"></script>
   <script type="module">
     import { initializeApp } from 'https://www.gstatic.com/firebasejs/10.12.0/firebase-app.js';
     import { getFirestore, doc, setDoc, onSnapshot } from 'https://www.gstatic.com/firebasejs/10.12.0/firebase-firestore.js';
@@ -261,6 +288,7 @@ body,html{font-family:'Sora',sans-serif;background:var(--bg);color:var(--ink)}
     setTimeout(() => window.dispatchEvent(new Event('fb-ready')), 100);
   </script>
   <script type="text/babel" data-presets="react">
+try { bootLog('5. Babel skript začíná parsovat'); } catch(_) {}
 const { useState, useMemo, useCallback, useEffect, useRef } = React;
 
 
@@ -7411,12 +7439,17 @@ function AssignTab({salespeople,customOrgs,setCustomOrgs,orgOverrides,setOrgAssi
 }
 
 
+window.__babelDone = true;
+try { bootLog('6. Babel skript hotový, čekám na init'); } catch(_) {}
+
 function init() {
   if (window._initDone) return;
   window._initDone = true;
+  try { bootLog('7. init() — render CRM'); } catch(_) {}
   initFirebase(); // try once more in case fb-ready fired between top-level init and now
   const root = ReactDOM.createRoot(document.getElementById('root'));
   root.render(React.createElement(CRM));
+  setTimeout(function(){ var el=document.getElementById('boot-status'); if(el) el.remove(); }, 500);
 }
 // Try immediately if firebase already loaded
 if (window._db) {
