@@ -245,6 +245,39 @@ body,html{font-family:'Sora',sans-serif;background:var(--bg);color:var(--ink)}
 ::-webkit-scrollbar{width:5px}
 ::-webkit-scrollbar-thumb{background:var(--border);border-radius:3px}
 
+/* AI ASSISTANT */
+.ai-fab{position:fixed;bottom:20px;right:20px;width:56px;height:56px;border-radius:50%;background:linear-gradient(135deg,#7C3AED 0%,#2563EB 100%);color:#fff;border:none;font-size:24px;cursor:pointer;box-shadow:0 6px 20px rgba(124,58,237,.4);z-index:450;transition:.2s;display:flex;align-items:center;justify-content:center}
+.ai-fab:hover{transform:scale(1.08);box-shadow:0 8px 28px rgba(124,58,237,.55)}
+.ai-fab.open{background:#0F0E0C}
+.ai-fab .ai-pulse{position:absolute;inset:-4px;border-radius:50%;background:rgba(124,58,237,.3);animation:aiPulse 2s infinite}
+@keyframes aiPulse{0%{transform:scale(1);opacity:.5}100%{transform:scale(1.5);opacity:0}}
+.ai-panel{position:fixed;bottom:84px;right:20px;width:380px;max-width:calc(100vw - 40px);height:560px;max-height:calc(100vh - 110px);background:var(--card);border:1.5px solid var(--border);border-radius:18px;box-shadow:0 20px 60px rgba(0,0,0,.25);display:flex;flex-direction:column;z-index:450;overflow:hidden;animation:fadeUp .25s ease}
+.ai-head{padding:13px 16px;background:linear-gradient(135deg,#7C3AED 0%,#2563EB 100%);color:#fff;font-weight:700;font-size:13px;display:flex;align-items:center;justify-content:space-between;flex-shrink:0}
+.ai-head-actions{display:flex;gap:5px}
+.ai-head-btn{background:rgba(255,255,255,.2);border:none;color:#fff;border-radius:6px;padding:3px 8px;font-size:11px;cursor:pointer;font-family:'Sora',sans-serif}
+.ai-head-btn:hover{background:rgba(255,255,255,.35)}
+.ai-msgs{flex:1;overflow-y:auto;padding:14px;display:flex;flex-direction:column;gap:9px;background:#FAFAF7}
+.ai-msg{padding:9px 12px;border-radius:12px;font-size:12.5px;line-height:1.55;max-width:85%;white-space:pre-wrap;word-wrap:break-word}
+.ai-msg.user{background:var(--ink);color:#fff;align-self:flex-end;border-bottom-right-radius:4px}
+.ai-msg.bot{background:var(--card);border:1px solid var(--border);align-self:flex-start;border-bottom-left-radius:4px}
+.ai-msg.bot.err{background:#FEE2E2;border-color:#FECACA;color:#B91C1C}
+.ai-input-row{display:flex;gap:6px;padding:10px;border-top:1px solid var(--border);background:var(--card);flex-shrink:0}
+.ai-input{flex:1;padding:8px 11px;border:1.5px solid var(--border);border-radius:10px;font-family:'Sora',sans-serif;font-size:12px;outline:none;resize:none;min-height:36px;max-height:120px;background:#fafaf8}
+.ai-input:focus{border-color:#7C3AED;background:#fff}
+.ai-send{padding:8px 14px;background:linear-gradient(135deg,#7C3AED 0%,#2563EB 100%);color:#fff;border:none;border-radius:10px;font-weight:600;cursor:pointer;font-size:14px}
+.ai-send:disabled{opacity:.4;cursor:not-allowed}
+.ai-suggestions{display:flex;gap:5px;flex-wrap:wrap;padding:8px 10px 0;flex-shrink:0;background:#FAFAF7}
+.ai-sug{font-size:10.5px;padding:5px 10px;background:#EDE9FE;color:#5B21B6;border:1px solid #DDD6FE;border-radius:20px;cursor:pointer;font-family:'Sora',sans-serif;font-weight:500}
+.ai-sug:hover{background:#DDD6FE}
+.ai-typing span{display:inline-block;width:6px;height:6px;background:var(--muted);border-radius:50%;margin:0 1px;animation:aiTyping 1.2s infinite}
+.ai-typing span:nth-child(2){animation-delay:.2s}
+.ai-typing span:nth-child(3){animation-delay:.4s}
+@keyframes aiTyping{0%,60%,100%{opacity:.3}30%{opacity:1}}
+.ai-key-form{padding:14px;background:var(--card);border-bottom:1px solid var(--border)}
+.ai-key-info{font-size:11px;color:var(--muted);line-height:1.5;margin-bottom:8px}
+.ai-key-info a{color:#7C3AED;text-decoration:underline}
+.ai-ctx-chip{display:inline-flex;align-items:center;gap:4px;font-size:10px;padding:2px 8px;background:rgba(255,255,255,.2);border-radius:20px;margin-left:6px;font-weight:500}
+
   </style>
 </head>
 <body>
@@ -6705,6 +6738,174 @@ function ManagerLogin({authManager}){
 }
 
 // ─── SALESPERSON PROFILE ──────────────────────────────────────────────────────
+// ─── AI ASSISTANT (Anthropic Claude) ─────────────────────────────────────────
+function AIAssistant({sp, allMy, expandedOrg, notes, interactions, orgDetails, tasks}) {
+  const [open, setOpen]             = useState(false)
+  const [apiKey, setApiKey]         = useState(()=>{try{return localStorage.getItem("crm_ai_key")||""}catch(_){return""}})
+  const [tempKey, setTempKey]       = useState("")
+  const [showKeyForm, setShowKeyForm] = useState(false)
+  const [messages, setMessages]     = useState([])
+  const [input, setInput]           = useState("")
+  const [loading, setLoading]       = useState(false)
+  const msgsRef                     = useRef(null)
+
+  useEffect(()=>{
+    if(msgsRef.current) msgsRef.current.scrollTop = msgsRef.current.scrollHeight
+  },[messages, loading, open])
+
+  const saveKey = () => {
+    const k = tempKey.trim()
+    if(!k) return
+    try{ localStorage.setItem("crm_ai_key", k) }catch(_){}
+    setApiKey(k); setTempKey(""); setShowKeyForm(false)
+  }
+  const clearKey = () => {
+    if(!window.confirm("Smazat uložený API klíč?")) return
+    try{ localStorage.removeItem("crm_ai_key") }catch(_){}
+    setApiKey(""); setMessages([])
+  }
+
+  const currentOrg = expandedOrg ? allMy.find(o=>o.id===expandedOrg) : null
+
+  const buildContext = () => {
+    let ctx = "Obchodník: " + sp.name + ". Má u sebe " + allMy.length + " organizací."
+    if(currentOrg) {
+      const note = notes[currentOrg.id] || ""
+      const ix = interactions.filter(i=>i.orgId===currentOrg.id&&i.spId===sp.id).slice(-5)
+      const det = orgDetails[currentOrg.id] || {}
+      const tks = tasks.filter(t=>t.orgId===currentOrg.id&&t.spId===sp.id&&!t.done)
+      ctx += "\n\n=== Aktuálně otevřená organizace ==="
+      ctx += "\nNázev: " + currentOrg.organization
+      if(currentOrg.type)    ctx += "\nTyp: " + currentOrg.type
+      if(currentOrg.contact) ctx += "\nKontaktní osoba: " + currentOrg.contact
+      if(currentOrg.phone)   ctx += "\nTelefon: " + currentOrg.phone
+      if(currentOrg.email)   ctx += "\nEmail: " + currentOrg.email
+      if(currentOrg.okres)   ctx += "\nOkres: " + currentOrg.okres
+      if(det.requirements)   ctx += "\nPožadavky: " + det.requirements
+      if(det.courseDays)     ctx += "\nDélka kurzu: " + det.courseDays + " dní"
+      if(note)               ctx += "\nMoje poznámky: " + note
+      if(ix.length)          ctx += "\nPosledních " + ix.length + " interakcí: " + ix.map(i=>i.status+" ("+i.date+")").join(", ")
+      if(tks.length)         ctx += "\nOtevřené úkoly: " + tks.map(t=>t.text+(t.date?" do "+t.date:"")).join("; ")
+    }
+    return ctx
+  }
+
+  const send = async (text) => {
+    const msg = (text||input).trim()
+    if(!msg||loading) return
+    if(!apiKey) { setShowKeyForm(true); return }
+
+    const newMsgs = [...messages, {role:'user', content:msg}]
+    setMessages(newMsgs)
+    setInput("")
+    setLoading(true)
+
+    const sysPrompt =
+      "Jsi obchodní asistent v CRM systému Pecka pro firmu, která prodává vzdělávací kurzy zaměřené na AI ve výuce školám, školkám, středním školám i obcím/městům v ČR. " +
+      "Pomáháš obchodníkům: píšeš za ně emaily (česky, profesionálně ale lidsky, s předmětem, s konkrétní výzvou k akci), radíš s odpověďmi na námitky, shrnuješ stav organizací, navrhuješ taktiku. " +
+      "Vždy odpovídej česky, krátce a konkrétně. Když je v kontextu organizace, využij její data v odpovědi.\n\n" +
+      "=== AKTUÁLNÍ KONTEXT ===\n" + buildContext()
+
+    try {
+      const resp = await fetch("https://api.anthropic.com/v1/messages", {
+        method: "POST",
+        headers: {
+          "x-api-key": apiKey,
+          "anthropic-version": "2023-06-01",
+          "anthropic-dangerous-direct-browser-access": "true",
+          "content-type": "application/json"
+        },
+        body: JSON.stringify({
+          model: "claude-sonnet-4-5",
+          max_tokens: 1500,
+          system: sysPrompt,
+          messages: newMsgs.map(m=>({role:m.role, content:m.content}))
+        })
+      })
+      if(!resp.ok) {
+        const txt = await resp.text()
+        let pretty = txt
+        try { pretty = JSON.parse(txt).error?.message || txt } catch(_){}
+        setMessages([...newMsgs, {role:'assistant', content:"❌ Chyba "+resp.status+": "+String(pretty).slice(0,400), err:true}])
+      } else {
+        const data = await resp.json()
+        const txt = (data.content && data.content[0] && data.content[0].text) || "(prázdná odpověď)"
+        setMessages([...newMsgs, {role:'assistant', content: txt}])
+      }
+    } catch(e) {
+      setMessages([...newMsgs, {role:'assistant', content:"❌ Síťová chyba: "+e.message, err:true}])
+    } finally {
+      setLoading(false)
+    }
+  }
+
+  const suggestions = (()=>{
+    if(messages.length>0) return []
+    if(currentOrg) return [
+      "Napiš úvodní email do "+currentOrg.organization,
+      "Co odepsat, když řeknou že nemají rozpočet?",
+      "Shrň mi situaci s touhle organizací",
+      "Navrhni follow-up po odloženém zájmu",
+    ]
+    return [
+      "Napiš úvodní email do školy o AI kurzu",
+      "Argumenty pro AI ve výuce",
+      "Jak reagovat na nezájem ředitele?",
+      "Tipy na úspěšný telefonát",
+    ]
+  })()
+
+  return(<>
+    <button className={`ai-fab ${open?"open":""}`} onClick={()=>setOpen(o=>!o)} title="AI Asistent" aria-label="AI Asistent">
+      {!open && <span className="ai-pulse"></span>}
+      <span style={{position:"relative",zIndex:1}}>{open?"✕":"🤖"}</span>
+    </button>
+    {open && <div className="ai-panel">
+      <div className="ai-head">
+        <span>🤖 AI Asistent{currentOrg&&<span className="ai-ctx-chip">📍 {currentOrg.organization.slice(0,22)}{currentOrg.organization.length>22?"…":""}</span>}</span>
+        <div className="ai-head-actions">
+          {messages.length>0&&<button className="ai-head-btn" onClick={()=>setMessages([])} title="Smazat konverzaci">🗑</button>}
+          <button className="ai-head-btn" onClick={()=>setShowKeyForm(s=>!s)} title="API klíč">🔑</button>
+        </div>
+      </div>
+
+      {showKeyForm && <div className="ai-key-form">
+        <div className="ai-key-info">
+          Vlož Anthropic API klíč (začíná <b>sk-ant-…</b>). Získáš ho na <a href="https://console.anthropic.com/settings/keys" target="_blank" rel="noopener">console.anthropic.com</a>. Klíč se uloží jen v tomto prohlížeči.
+        </div>
+        <input className="inp" type="password" placeholder="sk-ant-..." value={tempKey} onChange={e=>setTempKey(e.target.value)} onKeyDown={e=>e.key==='Enter'&&saveKey()} style={{marginBottom:8}}/>
+        <div style={{display:"flex",gap:6}}>
+          <button className="btn-green" style={{flex:1}} onClick={saveKey}>💾 Uložit klíč</button>
+          {apiKey&&<button className="btn-red" onClick={clearKey}>Smazat</button>}
+          <button className="btn-ghost" onClick={()=>setShowKeyForm(false)}>Zavřít</button>
+        </div>
+        {apiKey&&<div style={{fontSize:10,color:"#16A34A",marginTop:6}}>✓ Klíč uložen ({apiKey.slice(0,12)}…)</div>}
+      </div>}
+
+      <div className="ai-msgs" ref={msgsRef}>
+        {messages.length===0 && !showKeyForm && <div style={{textAlign:"center",color:"var(--muted)",fontSize:12,padding:"20px 10px",lineHeight:1.6}}>
+          {apiKey
+            ? <>Ahoj <b>{sp.name}</b>! 👋<br/>Jsem tu, abych pomohl s prodejem.<br/>{currentOrg?<>Pracuješ na <b>{currentOrg.organization}</b> — můžu psát emaily nebo radit konkrétně.</>:<>Otevři nějakou organizaci pro kontextní rady, nebo se mě prostě zeptej.</>}</>
+            : <>Nejprve nastav Anthropic API klíč přes <b>🔑</b> nahoře.</>}
+        </div>}
+        {messages.map((m,i)=>(
+          <div key={i} className={`ai-msg ${m.role} ${m.err?'err':''}`}>{m.content}</div>
+        ))}
+        {loading && <div className="ai-msg bot"><span className="ai-typing"><span></span><span></span><span></span></span></div>}
+      </div>
+
+      {suggestions.length>0 && !loading && apiKey && <div className="ai-suggestions">
+        {suggestions.map((s,i)=><button key={i} className="ai-sug" onClick={()=>send(s)}>{s}</button>)}
+      </div>}
+
+      <div className="ai-input-row">
+        <textarea className="ai-input" placeholder={apiKey?"Napiš dotaz nebo zadání… (Enter = odeslat, Shift+Enter = nový řádek)":"Nejprve nastav API klíč 🔑"} value={input} onChange={e=>setInput(e.target.value)} onKeyDown={e=>{if(e.key==='Enter'&&!e.shiftKey){e.preventDefault();send()}}} disabled={loading||!apiKey}/>
+        <button className="ai-send" onClick={()=>send()} disabled={loading||!input.trim()||!apiKey}>{loading?'⋯':'➤'}</button>
+      </div>
+    </div>}
+  </>)
+}
+
 function SalespersonProfile({sp,salespeople,customOrgs,setCustomOrgs,orgOverrides,setOrgAddedBy,interactions,setInteractions,trainings,setTrainings,orgRequests,setOrgRequests,notes,setNotes,tasks,setTasks,orgDetails,setOrgDetails,resolveOrg}){
   const [mainTab,setMainTab]     = useState("orgs")  // orgs | tasks | search
   const [activeFolder,setFolder] = useState("all")
@@ -7255,6 +7456,7 @@ function SalespersonProfile({sp,salespeople,customOrgs,setCustomOrgs,orgOverride
         {filteredOrgs.map(org=>renderOrgCard(org))}
       </>}
     </div>
+    <AIAssistant sp={sp} allMy={allMy} expandedOrg={expandedOrg} notes={notes} interactions={interactions} orgDetails={orgDetails} tasks={tasks}/>
   </div>)
 }
 
