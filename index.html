@@ -6855,7 +6855,8 @@ function AIAssistant({sp, allMy, expandedOrg, notes, interactions, orgDetails, t
     ]
   })()
 
-  return(<>
+  // Render přes Portal přímo do <body>, jinak transform na .screen ruší position:fixed
+  return ReactDOM.createPortal(<>
     <button className={`ai-fab ${open?"open":""}`} onClick={()=>setOpen(o=>!o)} title="AI Asistent" aria-label="AI Asistent">
       {!open && <span className="ai-pulse"></span>}
       <span style={{position:"relative",zIndex:1}}>{open?"✕":"🤖"}</span>
@@ -6903,7 +6904,7 @@ function AIAssistant({sp, allMy, expandedOrg, notes, interactions, orgDetails, t
         <button className="ai-send" onClick={()=>send()} disabled={loading||!input.trim()||!apiKey}>{loading?'⋯':'➤'}</button>
       </div>
     </div>}
-  </>)
+  </>, document.body)
 }
 
 function SalespersonProfile({sp,salespeople,customOrgs,setCustomOrgs,orgOverrides,setOrgAddedBy,interactions,setInteractions,trainings,setTrainings,orgRequests,setOrgRequests,notes,setNotes,tasks,setTasks,orgDetails,setOrgDetails,resolveOrg}){
