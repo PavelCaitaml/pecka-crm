@@ -34,6 +34,10 @@ body,html{font-family:'Sora',sans-serif;background:var(--bg);color:var(--ink)}
 .sp-card{background:var(--card);border:1.5px solid var(--border);border-radius:16px;padding:26px 16px;text-align:center;cursor:pointer;transition:.2s;box-shadow:var(--sh);position:relative}
 .sp-card:hover{transform:translateY(-4px);box-shadow:0 10px 32px rgba(0,0,0,.09);border-color:var(--green)}
 .sp-req-dot{position:absolute;top:10px;right:10px;width:10px;height:10px;background:var(--red);border-radius:50%;border:2px solid #fff}
+.sp-del-btn{position:absolute;top:6px;left:6px;width:24px;height:24px;border-radius:50%;background:rgba(220,38,38,.08);color:#DC2626;border:1.5px solid transparent;font-size:12px;font-weight:700;cursor:pointer;display:flex;align-items:center;justify-content:center;opacity:0;transition:.15s;font-family:'Sora',sans-serif}
+.sp-card:hover .sp-del-btn{opacity:1}
+.sp-del-btn:hover{background:#DC2626;color:#fff;border-color:#DC2626;transform:scale(1.1)}
+@media (hover: none) { .sp-del-btn{opacity:.6} }
 .sp-emoji{font-size:38px;margin-bottom:10px}
 .sp-name{font-size:14px;font-weight:600;margin-bottom:3px}
 .sp-role{font-size:10px;color:var(--muted);letter-spacing:.05em}
@@ -6790,6 +6794,34 @@ function CRM() {
   };
   const addSP = sp=>{setSP(p=>[...p,{...sp,id:"sp"+uid()}]);setShowAddSp(false);};
 
+  const deleteSP = (spId) => {
+    const sp = salespeople.find(s=>s.id===spId); if(!sp) return
+    const pass = window.prompt('Zadej manažerské heslo pro smazání profilu „' + sp.name + '":');
+    if(pass !== "Pecka1234") { if(pass!==null) alert("❌ Špatné heslo"); return }
+    if(!window.confirm('Opravdu smazat profil „' + sp.name + '"?\n\nCo se stane:\n• Profil bude smazán\n• Úkoly obchodníka budou smazány\n• Vlastní přidané organizace zůstanou (bez vlastníka — manažer je přiřadí komu chce)\n• Interakce a školení zůstanou zachovány (historie)\n\nTato akce je NEVRATNÁ.')) return
+    setSP(prev => prev.filter(s => s.id !== spId))
+    setTasks(prev => prev.filter(t => t.spId !== spId))
+    setOrgReqs(prev => prev.filter(r => r.spId !== spId))
+    setCustomOrgs(prev => prev.map(o => {
+      const updated = {...o}
+      if (o.addedBy === spId) updated.addedBy = null
+      if (o.assignedTo === spId) updated.assignedTo = null
+      return updated
+    }))
+    setOrgOv(prev => {
+      const next = {...prev}
+      for (const id in next) {
+        const ov = {...next[id]}
+        let changed = false
+        if (ov.addedBy === spId) { ov.addedBy = null; changed = true }
+        if (ov.assignedTo === spId) { ov.assignedTo = null; changed = true }
+        if (changed) next[id] = ov
+      }
+      return next
+    })
+    if (view === "sp:"+spId) go("home")
+  };
+
   // Overdue tasks count per sp
   const overdueCount = spId => {
     const today = todayStr();
@@ -6818,7 +6850,7 @@ function CRM() {
             :<button className={`btn-nav ${view==="manager_login"?"active":""}`} onClick={()=>go("manager_login")}>🔐 Manažer</button>}
         </div>
       </div>
-      {view==="home"&&<HomeScreen salespeople={salespeople} go={go} managerAuthed={managerAuthed} spPending={spPending} hasReq={hasReq} overdueCount={overdueCount} onAddSp={()=>setShowAddSp(true)}/>}
+      {view==="home"&&<HomeScreen salespeople={salespeople} go={go} managerAuthed={managerAuthed} spPending={spPending} hasReq={hasReq} overdueCount={overdueCount} onAddSp={()=>setShowAddSp(true)} onDeleteSp={deleteSP}/>}
       {view==="manager_login"&&<ManagerLogin authManager={authManager}/>}
       {view==="manager"&&managerAuthed&&<ManagerDashboard salespeople={salespeople} customOrgs={customOrgs} setCustomOrgs={setCustomOrgs} orgOverrides={orgOverrides} setOrgAssigned={setOrgAssigned} interactions={interactions} trainings={trainings} setTrainings={setTrainings} orgRequests={orgRequests} setOrgRequests={setOrgReqs} resolveOrg={resolveOrg}/>}
       {currentSp&&<SalespersonProfile sp={currentSp} salespeople={salespeople} customOrgs={customOrgs} setCustomOrgs={setCustomOrgs} orgOverrides={orgOverrides} setOrgAddedBy={setOrgAddedBy} interactions={interactions} setInteractions={setIx} trainings={trainings} setTrainings={setTrainings} orgRequests={orgRequests} setOrgRequests={setOrgReqs} notes={notes} setNotes={setNotes} tasks={tasks} setTasks={setTasks} orgDetails={orgDetails} setOrgDetails={setOrgDetails} scripts={scripts} setScripts={setScripts} resolveOrg={resolveOrg}/>}
@@ -6827,15 +6859,16 @@ function CRM() {
   </>);
 }
 
-function HomeScreen({salespeople,go,managerAuthed,spPending,hasReq,overdueCount,onAddSp}){
+function HomeScreen({salespeople,go,managerAuthed,spPending,hasReq,overdueCount,onAddSp,onDeleteSp}){
   return(<div className="screen"><div className="home-wrap">
     <div className="home-title">Kdo jste?</div>
-    <div className="home-sub">Klikněte na svůj profil pro přístup k pracovní ploše.</div>
+    <div className="home-sub">Klikněte na svůj profil pro přístup k pracovní ploše. (Najeďte myší na kartu → objeví se × pro smazání profilu.)</div>
     <div className="sp-grid">
       {salespeople.map(sp=>{
         const od=overdueCount(sp.id);
         return(<div key={sp.id} className="sp-card" onClick={()=>go(`sp:${sp.id}`)}>
           {(spPending(sp.id)>0||hasReq(sp.id)||od>0)&&<div className="sp-req-dot"/>}
+          <button className="sp-del-btn" title="Smazat profil (vyžaduje heslo)" onClick={e=>{e.stopPropagation();onDeleteSp(sp.id)}}>×</button>
           <div className="sp-emoji">{sp.emoji}</div>
           <div className="sp-name">{sp.name}</div>
           <div className="sp-role">Obchodník{od>0&&<span style={{color:"var(--red)",fontWeight:700,marginLeft:4}}>⚠️{od}</span>}</div>
