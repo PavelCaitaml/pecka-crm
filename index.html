@@ -6809,6 +6809,7 @@ function CRM() {
   },[orgOverrides]);
   const setOrgAssigned = (id,spId)=>setOrgOv(p=>({...p,[id]:{...(p[id]||{}),assignedTo:spId}}));
   const setOrgAddedBy  = (id,spId)=>setOrgOv(p=>({...p,[id]:{...(p[id]||{}),addedBy:spId,assignedTo:spId}}));
+  const setOrgOverride = (id,patch)=>setOrgOv(p=>({...p,[id]:{...(p[id]||{}),...patch}}));
 
   const go = setView;
   const currentSpId = view.startsWith("sp:") ? view.replace("sp:","") : null;
@@ -6882,7 +6883,7 @@ function CRM() {
       {view==="home"&&<HomeScreen salespeople={salespeople} go={go} managerAuthed={managerAuthed} spPending={spPending} hasReq={hasReq} overdueCount={overdueCount} onAddSp={()=>setShowAddSp(true)} onDeleteSp={deleteSP}/>}
       {view==="manager_login"&&<ManagerLogin authManager={authManager}/>}
       {view==="manager"&&managerAuthed&&<ManagerDashboard salespeople={salespeople} customOrgs={customOrgs} setCustomOrgs={setCustomOrgs} orgOverrides={orgOverrides} setOrgAssigned={setOrgAssigned} interactions={interactions} trainings={trainings} setTrainings={setTrainings} orgRequests={orgRequests} setOrgRequests={setOrgReqs} resolveOrg={resolveOrg}/>}
-      {currentSp&&<SalespersonProfile sp={currentSp} salespeople={salespeople} customOrgs={customOrgs} setCustomOrgs={setCustomOrgs} orgOverrides={orgOverrides} setOrgAddedBy={setOrgAddedBy} interactions={interactions} setInteractions={setIx} trainings={trainings} setTrainings={setTrainings} orgRequests={orgRequests} setOrgRequests={setOrgReqs} notes={notes} setNotes={setNotes} tasks={tasks} setTasks={setTasks} orgDetails={orgDetails} setOrgDetails={setOrgDetails} scripts={scripts} setScripts={setScripts} resolveOrg={resolveOrg}/>}
+      {currentSp&&<SalespersonProfile sp={currentSp} salespeople={salespeople} customOrgs={customOrgs} setCustomOrgs={setCustomOrgs} orgOverrides={orgOverrides} setOrgAddedBy={setOrgAddedBy} setOrgOverride={setOrgOverride} interactions={interactions} setInteractions={setIx} trainings={trainings} setTrainings={setTrainings} orgRequests={orgRequests} setOrgRequests={setOrgReqs} notes={notes} setNotes={setNotes} tasks={tasks} setTasks={setTasks} orgDetails={orgDetails} setOrgDetails={setOrgDetails} scripts={scripts} setScripts={setScripts} resolveOrg={resolveOrg}/>}
       {showAddSp&&<AddSpModal onAdd={addSP} onClose={()=>setShowAddSp(false)}/>}
     </div>
   </>);
@@ -7241,6 +7242,29 @@ function MapView({allMy, sp, getAllTimeStatus, openOrgDetail}) {
   </>)
 }
 
+// ─── AI WEB FINDER (Claude uhodne oficiální web dle názvu + IČO) ─────────────
+async function findCompanyWebsite(orgName, ico, hint, apiKey) {
+  if (!apiKey || !orgName) return null
+  const q = "Najdi oficiální web pro tuto českou organizaci:\nNázev: "+orgName+
+    (ico?"\nIČO: "+ico:"")+
+    (hint?"\n"+hint:"")
+  const sys = "Jsi nástroj pro hledání oficiálních webů českých firem, škol, obcí, státních podniků, veřejných VŠ a organizací. Vrať POUZE jednu doménu — bez https://, bez www., jen typu 'firma.cz'. Pokud si nejsi 90%+ jistý (např. moc obecný název, malá firma bez známého webu), vrať přesně 'unknown'. Žádná další slova, žádné vysvětlení, žádné uvozovky."
+  try {
+    const r = await fetch("https://api.anthropic.com/v1/messages", {
+      method:"POST",
+      headers:{"x-api-key":apiKey,"anthropic-version":"2023-06-01","anthropic-dangerous-direct-browser-access":"true","content-type":"application/json"},
+      body: JSON.stringify({model:"claude-haiku-4-5", max_tokens:80, system:sys, messages:[{role:"user", content:q}]})
+    })
+    if (!r.ok) return null
+    const data = await r.json()
+    let web = ((data.content && data.content[0] && data.content[0].text) || "").trim().toLowerCase()
+    web = web.replace(/^https?:\/\//,'').replace(/^www\./,'').replace(/\/$/,'').replace(/^["']|["']$/g,'').replace(/[\s.,;]+$/,'')
+    if (web === "unknown" || !web) return null
+    if (!/^[a-z0-9][a-z0-9\-\.]*\.[a-z]{2,}$/.test(web)) return null
+    return web
+  } catch(e) { return null }
+}
+
 // ─── ARES VYHLEDÁVAČ FIREM (napojeno na oficiální státní registr) ────────────
 function AresSearch({open, onClose, existingIcos, onAdd}) {
   const [q, setQ]                 = useState("")
@@ -7531,7 +7555,7 @@ function AIAssistant({sp, allMy, expandedOrg, notes, interactions, orgDetails, t
   </>, document.body)
 }
 
-function SalespersonProfile({sp,salespeople,customOrgs,setCustomOrgs,orgOverrides,setOrgAddedBy,interactions,setInteractions,trainings,setTrainings,orgRequests,setOrgRequests,notes,setNotes,tasks,setTasks,orgDetails,setOrgDetails,scripts,setScripts,resolveOrg}){
+function SalespersonProfile({sp,salespeople,customOrgs,setCustomOrgs,orgOverrides,setOrgAddedBy,setOrgOverride,interactions,setInteractions,trainings,setTrainings,orgRequests,setOrgRequests,notes,setNotes,tasks,setTasks,orgDetails,setOrgDetails,scripts,setScripts,resolveOrg}){
   const [mainTab,setMainTab]     = useState("orgs")  // orgs | tasks | search
   const [activeFolder,setFolder] = useState("all")
   const [activeCat,setActiveCat] = useState("vse")  // vse | obec | skolka | skola
@@ -7548,6 +7572,19 @@ function SalespersonProfile({sp,salespeople,customOrgs,setCustomOrgs,orgOverride
   const [aiTaskSugg,setAITaskSugg]  = useState({})    // {orgId: [{date,text}]}
   const [aiTaskLoading,setAITaskLd] = useState(null)  // orgId
   const [showAres,setShowAres]      = useState(false)
+  const [webFinding,setWebFinding]  = useState(new Set())   // orgIds currently fetching web
+
+  const findAndSaveWeb = async (org) => {
+    const apiKey = (()=>{try{return localStorage.getItem("crm_ai_key")||""}catch(_){return""}})()
+    if(!apiKey){alert("Nastav nejdřív Anthropic API klíč v AI Asistentovi (🤖 vpravo dole → 🔑)");return}
+    setWebFinding(p=>{const n=new Set(p);n.add(org.id);return n})
+    const hint = org.okres?"Sídlo/okres: "+org.okres:""
+    const web = await findCompanyWebsite(org.organization, org.ico, hint, apiKey)
+    setWebFinding(p=>{const n=new Set(p);n.delete(org.id);return n})
+    if(!web){alert("AI nenašla důvěryhodný web pro „"+org.organization+"". Doplň ručně v záložce ✏️ Upravit.");return}
+    if(customOrgs.find(o=>o.id===org.id)) updateCustomOrg(org.id, {web})
+    else setOrgOverride(org.id, {web})
+  }
 
   const myCustom  = customOrgs.filter(o=>o.addedBy===sp.id)
   const asgCustom = customOrgs.filter(o=>o.assignedTo===sp.id&&o.addedBy!==sp.id)
@@ -7792,7 +7829,8 @@ function SalespersonProfile({sp,salespeople,customOrgs,setCustomOrgs,orgOverride
             {org.ico&&<span style={{fontFamily:"'JetBrains Mono',monospace"}}>🆔 {org.ico}</span>}
             {org.okres&&<span>📍 {org.okres}</span>}
             {isObec&&org.population>0&&<span style={{fontFamily:"'JetBrains Mono',monospace",color:"var(--blue)",fontSize:10}}>👥 {org.population.toLocaleString("cs-CZ")}</span>}
-            {org.web&&<a href={org.web.startsWith("http")?org.web:"https://"+org.web} target="_blank" rel="noopener" className="web-link" onClick={e=>e.stopPropagation()}>🌐 Web</a>}
+            {org.web&&<a href={org.web.startsWith("http")?org.web:"https://"+org.web} target="_blank" rel="noopener" className="web-link" onClick={e=>e.stopPropagation()}>🌐 {org.web.replace(/^https?:\/\/(www\.)?/,'').replace(/\/$/,'').slice(0,30)}</a>}
+            {!org.web&&<button className="btn-sm" style={{padding:"2px 7px",fontSize:9,background:"#F5F3FF",color:"#5B21B6",border:"1px solid #DDD6FE"}} onClick={e=>{e.stopPropagation();findAndSaveWeb(org)}} disabled={webFinding.has(org.id)}>{webFinding.has(org.id)?"⏳ AI hledá…":"🌐 Najít web AI"}</button>}
             {overdueCnt>0&&<span style={{color:"var(--red)",fontWeight:700,fontSize:10}}>⚠️ {overdueCnt} úkol po termínu</span>}
             {pendTasks>0&&overdueCnt===0&&<span style={{color:"var(--amber)",fontSize:10}}>📌 {pendTasks} úkol</span>}
           </div>
@@ -8235,7 +8273,17 @@ function SalespersonProfile({sp,salespeople,customOrgs,setCustomOrgs,orgOverride
         if(dup){alert("Firma s tímto IČO už existuje: "+dup.organization);return}
         // Duplikát podle názvu
         if(customOrgs.find(o=>o.organization.toLowerCase()===nameLower)){alert("Firma s tímto názvem už existuje");return}
-        setCustomOrgs(db=>[...db,{id:"u"+uid(),...orgData,assignedTo:sp.id,addedBy:sp.id}])
+        const newId = "u"+uid()
+        setCustomOrgs(db=>[...db,{id:newId,...orgData,assignedTo:sp.id,addedBy:sp.id}])
+        // Auto-najít web přes AI (v pozadí, pokud je klíč nastaven)
+        const apiKey = (()=>{try{return localStorage.getItem("crm_ai_key")||""}catch(_){return""}})()
+        if(apiKey && !orgData.web) {
+          setWebFinding(p=>{const n=new Set(p);n.add(newId);return n})
+          findCompanyWebsite(orgData.organization, orgData.ico, orgData.okres?"Sídlo/okres: "+orgData.okres:"", apiKey).then(web=>{
+            setWebFinding(p=>{const n=new Set(p);n.delete(newId);return n})
+            if(web) setCustomOrgs(db=>db.map(o=>o.id===newId?{...o,web}:o))
+          })
+        }
       }}
     />
   </div>)
