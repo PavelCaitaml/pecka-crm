@@ -466,7 +466,7 @@ const INIT_SP = [
   {id:"sp8",name:"Pavel",emoji:"🎯",color:"#059669"},
   {id:"sp9",name:"Barča",emoji:"🐻",color:"#6D28D9"},
 ]
-const ORG_TYPES = ["ZŠ","SŠ","MŠ","MŠ+ZŠ","ZŠ+SŠ","Obec","Ostatní"]
+const ORG_TYPES = ["ZŠ","SŠ","MŠ","MŠ+ZŠ","ZŠ+SŠ","Obec","Firma","Ostatní"]
 const ALL_KRAJE = ["Hlavní město Praha", "Jihomoravský kraj", "Jihočeský kraj", "Karlovarský kraj", "Kraj Vysočina", "Královéhradecký kraj", "Liberecký kraj", "Moravskoslezský kraj", "Olomoucký kraj", "Pardubický kraj", "Plzeňský kraj", "Středočeský kraj", "Zlínský kraj", "Ústecký kraj"]
 const ALL_OKRESY = ["Benešov", "Beroun", "Blansko", "Brno-město", "Brno-venkov", "Bruntál", "Břeclav", "Cheb", "Chomutov", "Chrudim", "Domažlice", "Děčín", "Frýdek-Místek", "Havlíčkův Brod", "Hodonín", "Hradec Králové", "Jablonec nad Nisou", "Jeseník", "Jihlava", "Jindřichův Hradec", "Jičín", "Karlovy Vary", "Karviná", "Kladno", "Klatovy", "Kolín", "Kroměříž", "Kutná Hora", "Liberec", "Litoměřice", "Louny", "Mladá Boleslav", "Most", "Mělník", "Nový Jičín", "Nymburk", "Náchod", "Olomouc", "Opava", "Ostrava-město", "Pardubice", "Pelhřimov", "Plzeň-jih", "Plzeň-město", "Plzeň-sever", "Prachatice", "Praha", "Praha-východ", "Prostějov", "Písek", "Přerov", "Rokycany", "Rychnov nad Kněžnou", "Semily", "Sokolov", "Strakonice", "Svitavy", "Tachov", "Teplice", "Trutnov", "Tábor", "Třebíč", "Uherské Hradiště", "Vsetín", "Vyškov", "Zlín", "Znojmo", "Ústí nad Labem", "Ústí nad Orlicí", "Česká Lípa", "České Budějovice", "Český Krumlov", "Šumperk", "Žďár nad Sázavou"]
 const todayStr   = () => new Date().toISOString().split("T")[0]
@@ -7576,7 +7576,8 @@ function SalespersonProfile({sp,salespeople,customOrgs,setCustomOrgs,orgOverride
     if(activeCat==="vse") return true
     if(activeCat==="obec") return org.type==="Obec"
     if(activeCat==="skolka") return org.type==="MŠ"||org.type==="MŠ+ZŠ"
-    if(activeCat==="skola") return ["ZŠ","SŠ","ZŠ+SŠ","Ostatní"].includes(org.type)
+    if(activeCat==="skola") return ["ZŠ","SŠ","ZŠ+SŠ","MŠ+ZŠ"].includes(org.type)
+    if(activeCat==="firma") return org.type==="Firma"||org.type==="Ostatní"||!org.type
     return true
   }
 
@@ -7982,17 +7983,33 @@ function SalespersonProfile({sp,salespeople,customOrgs,setCustomOrgs,orgOverride
           const future=allMyTasks.filter(t=>!t.done&&t.date&&t.date>today).sort((a,b)=>a.date>b.date?1:-1)
           const done=allMyTasks.filter(t=>t.done).slice(0,5)
           const getOrgName=orgId=>[...customOrgs,...ALL_ORGS_DB].find(o=>o.id===orgId)?.organization||"?"
-          const renderTask=(t,isOverdue)=>(
-            <div key={t.id} className={`task-item ${isOverdue?"overdue":""} ${t.done?"done-task":""}`}>
-              <div className={`task-check ${t.done?"checked":""}`} onClick={()=>toggleTask(t.id)}>{t.done?"✓":""}</div>
-              <div style={{flex:1}}>
-                <div className={`task-text ${t.done?"done-task":""}`}>{t.text}</div>
-                <div style={{fontSize:10,color:"var(--muted)",marginTop:2}}>📍 {getOrgName(t.orgId)}</div>
+          const resolveTaskOrg=orgId=>{
+            const custom=customOrgs.find(o=>o.id===orgId); if(custom) return custom
+            const db=ALL_ORGS_DB.find(o=>o.id===orgId); return db?resolveOrg(db):null
+          }
+          const renderTask=(t,isOverdue)=>{
+            const isExp=expandedOrg===t.orgId
+            const taskOrg=resolveTaskOrg(t.orgId)
+            return(<div key={t.id} style={{marginBottom:5}}>
+              <div className={`task-item ${isOverdue?"overdue":""} ${t.done?"done-task":""}`} style={{cursor:"pointer",marginBottom:0,borderBottomLeftRadius:isExp?0:8,borderBottomRightRadius:isExp?0:8}}
+                onClick={e=>{if(e.target.closest('.task-check, .task-del-btn'))return; setExpOrg(isExp?null:t.orgId)}}>
+                <div className={`task-check ${t.done?"checked":""}`} onClick={e=>{e.stopPropagation();toggleTask(t.id)}}>{t.done?"✓":""}</div>
+                <div style={{flex:1}}>
+                  <div className={`task-text ${t.done?"done-task":""}`}>{t.text}</div>
+                  <div style={{fontSize:10,color:"var(--muted)",marginTop:2,display:"flex",alignItems:"center",gap:4}}>
+                    <span style={{color:isExp?"var(--green)":"var(--muted)",fontWeight:700,transition:".15s",display:"inline-block",transform:isExp?"rotate(90deg)":"none"}}>▶</span>
+                    📍 {getOrgName(t.orgId)}
+                  </div>
+                </div>
+                {t.date&&<div className={`task-date ${isOverdue?"overdue":""}`}>{isOverdue?"⚠️ ":""}{t.date}</div>}
+                <button className="btn-sm task-del-btn" style={{padding:"2px 6px",fontSize:10}} onClick={e=>{e.stopPropagation();deleteTask(t.id)}}>🗑</button>
               </div>
-              {t.date&&<div className={`task-date ${isOverdue?"overdue":""}`}>{isOverdue?"⚠️ ":""}{t.date}</div>}
-              <button className="btn-sm" style={{padding:"2px 6px",fontSize:10}} onClick={()=>deleteTask(t.id)}>🗑</button>
-            </div>
-          )
+              {isExp&&taskOrg&&<div style={{marginTop:0,marginLeft:8,marginRight:4,borderLeft:"3px solid var(--green)",paddingLeft:8}}>
+                {renderOrgCard(taskOrg)}
+              </div>}
+              {isExp&&!taskOrg&&<div style={{fontSize:11,color:"var(--muted)",padding:"8px 12px",background:"#FEF2F2",border:"1px solid #FECACA",borderRadius:"0 0 8px 8px",marginTop:0}}>⚠️ Organizace už není u tebe (možná byla přiřazena jinam nebo smazána).</div>}
+            </div>)
+          }
           return(<>
             {overdue.length>0&&<div className="task-section">
               <div className="task-section-title task-section-overdue">⚠️ Po termínu ({overdue.length})</div>
@@ -8021,10 +8038,11 @@ function SalespersonProfile({sp,salespeople,customOrgs,setCustomOrgs,orgOverride
         {/* CATEGORY TABS */}
         <div className="cat-tabs">
           {[
-            {id:"vse",   label:"📋 Vše",      count:allMy.length},
+            {id:"vse",   label:"📋 Vše",         count:allMy.length},
             {id:"obec",  label:"🏘️ Obce a města", count:allMy.filter(o=>o.type==="Obec").length},
-            {id:"skolka",label:"🧒 Školky",   count:allMy.filter(o=>o.type==="MŠ"||o.type==="MŠ+ZŠ").length},
-            {id:"skola", label:"🏫 Školy",    count:allMy.filter(o=>["ZŠ","SŠ","ZŠ+SŠ","Ostatní"].includes(o.type)).length},
+            {id:"skolka",label:"🧒 Školky",      count:allMy.filter(o=>o.type==="MŠ"||o.type==="MŠ+ZŠ").length},
+            {id:"skola", label:"🏫 Školy",       count:allMy.filter(o=>["ZŠ","SŠ","ZŠ+SŠ","MŠ+ZŠ"].includes(o.type)).length},
+            {id:"firma", label:"🏢 Firmy",       count:allMy.filter(o=>o.type==="Firma"||o.type==="Ostatní"||!o.type).length},
           ].map(c=><button key={c.id} className={`cat-tab ${activeCat===c.id?"active":""}`} onClick={()=>setActiveCat(c.id)}>
             {c.label} <span style={{background:activeCat===c.id?"rgba(255,255,255,.25)":"var(--bg)",borderRadius:20,padding:"0 5px",fontSize:10}}>{c.count}</span>
           </button>)}
