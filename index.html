@@ -7581,7 +7581,7 @@ function SalespersonProfile({sp,salespeople,customOrgs,setCustomOrgs,orgOverride
     const hint = org.okres?"Sídlo/okres: "+org.okres:""
     const web = await findCompanyWebsite(org.organization, org.ico, hint, apiKey)
     setWebFinding(p=>{const n=new Set(p);n.delete(org.id);return n})
-    if(!web){alert("AI nenašla důvěryhodný web pro „"+org.organization+"". Doplň ručně v záložce ✏️ Upravit.");return}
+    if(!web){alert('AI nenašla důvěryhodný web pro „' + org.organization + '". Doplň ručně v záložce ✏️ Upravit.');return}
     if(customOrgs.find(o=>o.id===org.id)) updateCustomOrg(org.id, {web})
     else setOrgOverride(org.id, {web})
   }
