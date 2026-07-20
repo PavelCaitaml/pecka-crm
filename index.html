@@ -8229,7 +8229,9 @@ if (window._db) {
       var src = document.getElementById('appsrc').textContent;
       var out;
       try {
-        out = Babel.transform(src, {presets: ['react']});
+        // runtime:"classic" = použij React.createElement místo import { jsx } from "react/jsx-runtime"
+        // (jinak by výstup obsahoval ES import, který spadne v eval)
+        out = Babel.transform(src, {presets: [['react', {runtime: 'classic', pragma: 'React.createElement', pragmaFrag: 'React.Fragment'}]]});
       } catch (e) {
         var loc = (e.loc ? ' (řádek ' + e.loc.line + ', sloupec ' + e.loc.column + ')' : '');
         var msg = '💥 BABEL TRANSPILE ERROR' + loc + ':\n\n' + (e.message||e);
