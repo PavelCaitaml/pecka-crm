@@ -466,7 +466,36 @@ const INIT_SP = [
   {id:"sp8",name:"Pavel",emoji:"🎯",color:"#059669"},
   {id:"sp9",name:"Barča",emoji:"🐻",color:"#6D28D9"},
 ]
-const ORG_TYPES = ["ZŠ","SŠ","MŠ","MŠ+ZŠ","ZŠ+SŠ","Obec","Firma","Ostatní"]
+const ORG_TYPES = ["ZŠ","SŠ","MŠ","MŠ+ZŠ","ZŠ+SŠ","Obec","Firma","Státní podnik","OSVČ","PZZZ","Ostatní"]
+
+// Barvy pro badge podle typu firmy
+const TYPE_BADGE = {
+  "Firma":         {bg:"#EFF6FF", color:"#1D4ED8"},
+  "Státní podnik": {bg:"#F0FDF4", color:"#166534"},
+  "OSVČ":          {bg:"#FEF3C7", color:"#92400E"},
+  "PZZZ":          {bg:"#F5F3FF", color:"#5B21B6"},
+  "Ostatní":       {bg:"#F3F4F6", color:"#374151"},
+}
+
+// Klasifikace subjektu podle ARES právní formy (kód nebo název)
+// PZZZ = Právnická osoba zřízená zvláštním zákonem (veřejné VŠ, VVI, profesní komory, ČT/ČRo, zdravotní pojišťovny...)
+function classifyAresForm(kod, nazev) {
+  const k = parseInt(kod)||0
+  const n = (nazev||"").toLowerCase()
+  // OSVČ (fyzická osoba podnikající)
+  if (k>=100 && k<=109) return "OSVČ"
+  if (n.includes("fyzická osoba podnikající") || n.includes("živnostník") || n.includes("zemědělský podnikatel")) return "OSVČ"
+  // Státní podnik
+  if (k===301 || k===302 || k===303 || k===304) return "Státní podnik"
+  if (n.includes("státní podnik") || n.includes("národní podnik")) return "Státní podnik"
+  // PZZZ (zákonem zřízené)
+  if (k===601 || k===661 || k===741 || k===751) return "PZZZ"
+  if (n.includes("veřejná vysoká škola") || n.includes("veřejná výzkumná instituce") || n.includes("stavovská organizace") || n.includes("profesní komora") || n.includes("zdravotní pojišťovna")) return "PZZZ"
+  // Obec (přesuneme do vlastní kategorie)
+  if (k===801 || k===342 || k===804) return "Obec"
+  // Standardní obchodní korporace + zbytek → Firma
+  return "Firma"
+}
 const ALL_KRAJE = ["Hlavní město Praha", "Jihomoravský kraj", "Jihočeský kraj", "Karlovarský kraj", "Kraj Vysočina", "Královéhradecký kraj", "Liberecký kraj", "Moravskoslezský kraj", "Olomoucký kraj", "Pardubický kraj", "Plzeňský kraj", "Středočeský kraj", "Zlínský kraj", "Ústecký kraj"]
 const ALL_OKRESY = ["Benešov", "Beroun", "Blansko", "Brno-město", "Brno-venkov", "Bruntál", "Břeclav", "Cheb", "Chomutov", "Chrudim", "Domažlice", "Děčín", "Frýdek-Místek", "Havlíčkův Brod", "Hodonín", "Hradec Králové", "Jablonec nad Nisou", "Jeseník", "Jihlava", "Jindřichův Hradec", "Jičín", "Karlovy Vary", "Karviná", "Kladno", "Klatovy", "Kolín", "Kroměříž", "Kutná Hora", "Liberec", "Litoměřice", "Louny", "Mladá Boleslav", "Most", "Mělník", "Nový Jičín", "Nymburk", "Náchod", "Olomouc", "Opava", "Ostrava-město", "Pardubice", "Pelhřimov", "Plzeň-jih", "Plzeň-město", "Plzeň-sever", "Prachatice", "Praha", "Praha-východ", "Prostějov", "Písek", "Přerov", "Rokycany", "Rychnov nad Kněžnou", "Semily", "Sokolov", "Strakonice", "Svitavy", "Tachov", "Teplice", "Trutnov", "Tábor", "Třebíč", "Uherské Hradiště", "Vsetín", "Vyškov", "Zlín", "Znojmo", "Ústí nad Labem", "Ústí nad Orlicí", "Česká Lípa", "České Budějovice", "Český Krumlov", "Šumperk", "Žďár nad Sázavou"]
 const todayStr   = () => new Date().toISOString().split("T")[0]
@@ -7212,6 +7241,127 @@ function MapView({allMy, sp, getAllTimeStatus, openOrgDetail}) {
   </>)
 }
 
+// ─── ARES VYHLEDÁVAČ FIREM (napojeno na oficiální státní registr) ────────────
+function AresSearch({open, onClose, existingIcos, onAdd}) {
+  const [q, setQ]                 = useState("")
+  const [filterType, setFilterType] = useState("all")   // all | firma | statni | osvc | pzzz
+  const [results, setResults]     = useState([])
+  const [loading, setLoading]     = useState(false)
+  const [total, setTotal]         = useState(0)
+  const [error, setError]         = useState("")
+  const [addingIco, setAddingIco] = useState(null)
+  const [addedIcos, setAddedIcos] = useState(new Set())
+
+  const search = async () => {
+    const query = q.trim()
+    if(!query){setError("Zadej název firmy nebo IČO");return}
+    setError(""); setLoading(true); setResults([]); setTotal(0)
+    let body = {start:0, pocet:50}
+    // Auto-detect IČO (6-8 číslic)
+    if(/^\d{6,8}$/.test(query)) body.ico = [query.padStart(8,'0')]
+    else body.obchodniJmeno = query
+    // Filtr právní formy
+    if(filterType==="firma")    body.pravniForma = ["111","112","113","121","205"]  // v.o.s., s.r.o., k.s., a.s., družstvo
+    if(filterType==="statni")   body.pravniForma = ["301","302","303","304"]
+    if(filterType==="osvc")     body.pravniForma = ["100","101","102"]
+    if(filterType==="pzzz")     body.pravniForma = ["601","661","741","751"]
+    try {
+      const r = await fetch("https://ares.gov.cz/ekonomicke-subjekty-v-be/rest/ekonomicke-subjekty/vyhledat", {
+        method:"POST",
+        headers:{"Accept":"application/json","Content-Type":"application/json"},
+        body: JSON.stringify(body)
+      })
+      if(!r.ok){setError("ARES chyba: "+r.status);setLoading(false);return}
+      const data = await r.json()
+      setResults(data.ekonomickeSubjekty||[])
+      setTotal(data.pocetCelkem||0)
+    } catch(e){ setError("Síťová chyba: "+e.message) }
+    setLoading(false)
+  }
+
+  const addOrg = async (item) => {
+    if(existingIcos.has(item.ico)) { alert("Tato firma už je v CRM (podle IČO)."); return }
+    setAddingIco(item.ico)
+    try {
+      // Detail volitelně — základní data máme z hledání
+      const type = classifyAresForm(item.pravniForma, item.pravniFormaText)
+      const okres = (item.sidlo&&item.sidlo.nazevOkresu)||""
+      const kraj  = (item.sidlo&&item.sidlo.nazevKraje)||""
+      const adresa= (item.sidlo&&item.sidlo.textovaAdresa)||""
+      onAdd({
+        organization: item.obchodniJmeno,
+        contact:"", phone:"", email:"", web:"",
+        type: type,
+        kraj: kraj,
+        okres: okres,
+        population: 0,
+        ico: item.ico,
+        adresa: adresa,
+        pravniForma: item.pravniFormaText || item.pravniForma
+      })
+      setAddedIcos(prev => new Set([...prev, item.ico]))
+    } catch(e){ alert("Chyba přidání: "+e.message) }
+    setAddingIco(null)
+  }
+
+  if(!open) return null
+
+  return(<div className="modal-bg" onClick={onClose}>
+    <div className="modal" style={{maxWidth:680,padding:22}} onClick={e=>e.stopPropagation()}>
+      <div style={{display:"flex",alignItems:"center",justifyContent:"space-between",marginBottom:14}}>
+        <div className="modal-title" style={{margin:0}}>🏛 Hledat v ARES (státní registr firem ČR)</div>
+        <button className="btn-ghost" onClick={onClose} style={{padding:"4px 10px"}}>✕</button>
+      </div>
+
+      <div style={{fontSize:11,color:"var(--muted)",marginBottom:10,lineHeight:1.5}}>
+        Data z oficiálního <a href="https://ares.gov.cz" target="_blank" rel="noopener" style={{color:"#2563EB"}}>ARES</a> — všechny české firmy, státní podniky, OSVČ, veřejné VŠ, komory. Klik na „+ Přidat" doplní firmu i s IČO a adresou.
+      </div>
+
+      <div style={{display:"flex",gap:6,marginBottom:8}}>
+        <input className="inp" placeholder="Název firmy nebo IČO (např. ŠKODA AUTO, 00177041)…" value={q} onChange={e=>setQ(e.target.value)} onKeyDown={e=>e.key==='Enter'&&search()} autoFocus/>
+        <button className="btn-green" onClick={search} disabled={loading||!q.trim()} style={{minWidth:100}}>{loading?"⏳ Hledám…":"🔍 Hledat"}</button>
+      </div>
+
+      <div style={{display:"flex",gap:5,marginBottom:12,flexWrap:"wrap"}}>
+        {[["all","Vše"],["firma","🏢 Obchodní korporace"],["statni","🏛 Státní podniky"],["osvc","👤 OSVČ"],["pzzz","🎓 PZZZ / VŠ / komory"]].map(([id,lbl])=>(
+          <button key={id} className={`btn-sm ${filterType===id?"green":""}`} onClick={()=>setFilterType(id)} style={{padding:"5px 10px",fontSize:10}}>{lbl}</button>
+        ))}
+      </div>
+
+      {error && <div style={{background:"#FEE2E2",border:"1.5px solid #FECACA",color:"#B91C1C",padding:"8px 12px",borderRadius:8,fontSize:12,marginBottom:10}}>{error}</div>}
+
+      {loading && <div className="empty-s"><div className="empty-icon">⏳</div><div>Ptám se ARES…</div></div>}
+
+      {!loading && results.length>0 && <>
+        <div style={{fontSize:11,color:"var(--muted)",marginBottom:8}}>Nalezeno {total>50?"více než 50 (zobrazeno prvních 50)":total} výsledků</div>
+        <div style={{maxHeight:400,overflowY:"auto",display:"flex",flexDirection:"column",gap:5}}>
+          {results.map(r=>{
+            const type = classifyAresForm(r.pravniForma, r.pravniFormaText)
+            const badge = TYPE_BADGE[type] || TYPE_BADGE["Firma"]
+            const already = existingIcos.has(r.ico) || addedIcos.has(r.ico)
+            return(<div key={r.ico} style={{padding:"10px 12px",border:"1px solid var(--border)",borderRadius:10,display:"flex",gap:10,alignItems:"center",background:already?"#F0FDF4":"var(--card)"}}>
+              <div style={{flex:1,minWidth:0}}>
+                <div style={{fontWeight:600,fontSize:12,marginBottom:3}}>{r.obchodniJmeno}</div>
+                <div style={{fontSize:10,color:"var(--muted)",display:"flex",gap:6,flexWrap:"wrap",alignItems:"center"}}>
+                  <span style={{fontFamily:"'JetBrains Mono',monospace",fontWeight:600,color:"var(--ink)"}}>IČO {r.ico}</span>
+                  <span style={{padding:"2px 7px",borderRadius:10,background:badge.bg,color:badge.color,fontSize:9,fontWeight:700}}>{type}</span>
+                  {r.pravniFormaText && <span style={{fontStyle:"italic"}}>{r.pravniFormaText}</span>}
+                  {r.sidlo&&r.sidlo.nazevObce && <span>📍 {r.sidlo.nazevObce}{r.sidlo.nazevOkresu&&r.sidlo.nazevOkresu!==r.sidlo.nazevObce?" ("+r.sidlo.nazevOkresu+")":""}</span>}
+                </div>
+              </div>
+              {already
+                ? <span style={{fontSize:10,color:"#16A34A",fontWeight:700,whiteSpace:"nowrap"}}>✓ Přidáno</span>
+                : <button className="btn-sm green" onClick={()=>addOrg(r)} disabled={addingIco===r.ico} style={{whiteSpace:"nowrap"}}>{addingIco===r.ico?"⏳":"+ Přidat"}</button>}
+            </div>)
+          })}
+        </div>
+      </>}
+
+      {!loading && q && results.length===0 && !error && <div className="empty-s"><div className="empty-icon">🔍</div><div>Nic nenalezeno. Zkus jiný název nebo IČO.</div></div>}
+    </div>
+  </div>)
+}
+
 // ─── AI ASSISTANT (Anthropic Claude) ─────────────────────────────────────────
 function AIAssistant({sp, allMy, expandedOrg, notes, interactions, orgDetails, tasks}) {
   const [open, setOpen]             = useState(false)
@@ -7397,6 +7547,7 @@ function SalespersonProfile({sp,salespeople,customOrgs,setCustomOrgs,orgOverride
   const [scriptEditing,setScriptEd] = useState(null)  // {type: 'obec'|'skola'|'firma', text: '...'}
   const [aiTaskSugg,setAITaskSugg]  = useState({})    // {orgId: [{date,text}]}
   const [aiTaskLoading,setAITaskLd] = useState(null)  // orgId
+  const [showAres,setShowAres]      = useState(false)
 
   const myCustom  = customOrgs.filter(o=>o.addedBy===sp.id)
   const asgCustom = customOrgs.filter(o=>o.assignedTo===sp.id&&o.addedBy!==sp.id)
@@ -7577,9 +7728,10 @@ function SalespersonProfile({sp,salespeople,customOrgs,setCustomOrgs,orgOverride
     if(activeCat==="obec") return org.type==="Obec"
     if(activeCat==="skolka") return org.type==="MŠ"||org.type==="MŠ+ZŠ"
     if(activeCat==="skola") return ["ZŠ","SŠ","ZŠ+SŠ","MŠ+ZŠ"].includes(org.type)
-    if(activeCat==="firma") return org.type==="Firma"||org.type==="Ostatní"||!org.type
+    if(activeCat==="firma") return ["Firma","Státní podnik","OSVČ","PZZZ","Ostatní"].includes(org.type)||!org.type
     return true
   }
+  const isFirmaType = t => ["Firma","Státní podnik","OSVČ","PZZZ","Ostatní"].includes(t)||!t
 
   const filteredByCat = useMemo(()=>allMy.filter(getCatFilter),[allMy,activeCat])
 
@@ -7637,7 +7789,8 @@ function SalespersonProfile({sp,salespeople,customOrgs,setCustomOrgs,orgOverride
           <div className="org-meta">
             {org.contact&&<span>👤 {org.contact}</span>}
             {org.phone&&<span>📞 {org.phone}</span>}
-            {isObec&&org.okres&&<span>📍 {org.okres}</span>}
+            {org.ico&&<span style={{fontFamily:"'JetBrains Mono',monospace"}}>🆔 {org.ico}</span>}
+            {org.okres&&<span>📍 {org.okres}</span>}
             {isObec&&org.population>0&&<span style={{fontFamily:"'JetBrains Mono',monospace",color:"var(--blue)",fontSize:10}}>👥 {org.population.toLocaleString("cs-CZ")}</span>}
             {org.web&&<a href={org.web.startsWith("http")?org.web:"https://"+org.web} target="_blank" rel="noopener" className="web-link" onClick={e=>e.stopPropagation()}>🌐 Web</a>}
             {overdueCnt>0&&<span style={{color:"var(--red)",fontWeight:700,fontSize:10}}>⚠️ {overdueCnt} úkol po termínu</span>}
@@ -7870,7 +8023,12 @@ function SalespersonProfile({sp,salespeople,customOrgs,setCustomOrgs,orgOverride
       </div>}
 
       <div>
-        <div className="sec-hd">➕ Přidat organizaci</div>
+        <button className="btn-sm" style={{width:"100%",background:"#DBEAFE",color:"#1D4ED8",border:"1.5px solid #93C5FD",padding:"9px 12px",fontWeight:600,fontSize:12}} onClick={()=>setShowAres(true)}>🏛 Přidat firmu z ARES</button>
+        <div style={{fontSize:10,color:"var(--muted)",marginTop:4,textAlign:"center"}}>hledáček státního registru firem ČR</div>
+      </div>
+
+      <div>
+        <div className="sec-hd">➕ Přidat organizaci ručně</div>
         <div className="add-form">
           <input className="inp" placeholder="Název *" value={addForm.organization} onChange={e=>{setAddForm(f=>({...f,organization:e.target.value}));checkDuplicates(e.target.value);}}/>
           {dupWarning==="exact"&&<div style={{background:"#FEE2E2",border:"1.5px solid #FECACA",borderRadius:8,padding:"8px 11px",fontSize:11,color:"#DC2626"}}>
@@ -8042,7 +8200,7 @@ function SalespersonProfile({sp,salespeople,customOrgs,setCustomOrgs,orgOverride
             {id:"obec",  label:"🏘️ Obce a města", count:allMy.filter(o=>o.type==="Obec").length},
             {id:"skolka",label:"🧒 Školky",      count:allMy.filter(o=>o.type==="MŠ"||o.type==="MŠ+ZŠ").length},
             {id:"skola", label:"🏫 Školy",       count:allMy.filter(o=>["ZŠ","SŠ","ZŠ+SŠ","MŠ+ZŠ"].includes(o.type)).length},
-            {id:"firma", label:"🏢 Firmy",       count:allMy.filter(o=>o.type==="Firma"||o.type==="Ostatní"||!o.type).length},
+            {id:"firma", label:"🏢 Firmy",       count:allMy.filter(o=>isFirmaType(o.type)).length},
           ].map(c=><button key={c.id} className={`cat-tab ${activeCat===c.id?"active":""}`} onClick={()=>setActiveCat(c.id)}>
             {c.label} <span style={{background:activeCat===c.id?"rgba(255,255,255,.25)":"var(--bg)",borderRadius:20,padding:"0 5px",fontSize:10}}>{c.count}</span>
           </button>)}
@@ -8066,6 +8224,20 @@ function SalespersonProfile({sp,salespeople,customOrgs,setCustomOrgs,orgOverride
       </>}
     </div>
     <AIAssistant sp={sp} allMy={allMy} expandedOrg={expandedOrg} notes={notes} interactions={interactions} orgDetails={orgDetails} tasks={tasks}/>
+    <AresSearch
+      open={showAres}
+      onClose={()=>setShowAres(false)}
+      existingIcos={new Set([...customOrgs,...ALL_ORGS_DB].map(o=>o.ico).filter(Boolean))}
+      onAdd={(orgData)=>{
+        const nameLower = orgData.organization.trim().toLowerCase()
+        // Duplikát podle IČO
+        const dup = [...customOrgs,...allAsgn].find(o=>o.ico===orgData.ico)
+        if(dup){alert("Firma s tímto IČO už existuje: "+dup.organization);return}
+        // Duplikát podle názvu
+        if(customOrgs.find(o=>o.organization.toLowerCase()===nameLower)){alert("Firma s tímto názvem už existuje");return}
+        setCustomOrgs(db=>[...db,{id:"u"+uid(),...orgData,assignedTo:sp.id,addedBy:sp.id}])
+      }}
+    />
   </div>)
 }
 
